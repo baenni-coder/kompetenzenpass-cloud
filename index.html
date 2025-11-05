@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digitaler Kompetenzpass - Cloud Version</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- Firebase SDK v9 -->
+    <script type="module">
+        // Firebase Konfiguration - ERSETZE DIESE WERTE MIT DEINEN EIGENEN!
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getAuth } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        
+        const firebaseConfig = {
+            // HIER DEINE FIREBASE CONFIG EINFÜGEN!
+            // Du findest sie in Firebase Console → Projekteinstellungen → Deine Apps
+            apiKey: "DEIN-API-KEY",
+            authDomain: "DEIN-AUTH-DOMAIN",
+            projectId: "DEIN-PROJECT-ID",
+            storageBucket: "DEIN-STORAGE-BUCKET",
+            messagingSenderId: "DEINE-SENDER-ID",
+            appId: "DEINE-APP-ID"
+        };
+        
+        // Firebase initialisieren
+        const app = initializeApp(firebaseConfig);
+        window.auth = getAuth(app);
+        window.db = getFirestore(app);
+        
+        // Firebase global verfügbar machen
+        window.firebaseApp = app;
+    </script>
+    
+    <!-- jsPDF für PDF-Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Lade-Anzeige -->
+        <div id="loadingIndicator" class="loading-overlay hidden">
+            <div class="spinner"></div>
+            <p>Daten werden synchronisiert...</p>
+        </div>
+
+        <!-- Login-Bereich -->
+        <div id="loginArea" class="container">
+            <h1>🎓 Digitaler Kompetenzpass</h1>
+            <h2 style="text-align: center; color: #667eea;">☁️ Cloud Version</h2>
+            
+            <!-- Schüler Login/Registrierung -->
+            <div id="studentAuthBox" class="login-box">
+                <h2>Schüler-Bereich</h2>
+                <div class="tab-buttons">
+                    <button onclick="showStudentLogin()" id="loginTab" class="active">Anmelden</button>
+                    <button onclick="showStudentRegister()" id="registerTab">Neu registrieren</button>
+                </div>
+                
+                <!-- Login Form -->
+                <div id="studentLoginForm">
+                    <input type="email" id="studentEmail" placeholder="E-Mail Adresse">
+                    <input type="password" id="studentPassword" placeholder="Passwort">
+                    <button onclick="loginStudent()">Einloggen</button>
+                </div>
+                
+                <!-- Register Form -->
+                <div id="studentRegisterForm" class="hidden">
+                    <input type="text" id="registerName" placeholder="Dein Name">
+                    <input type="email" id="registerEmail" placeholder="E-Mail Adresse">
+                    <input type="password" id="registerPassword" placeholder="Passwort (min. 6 Zeichen)">
+                    <input type="text" id="registerClass" placeholder="Klasse (z.B. 7a)">
+                    <button onclick="registerStudent()">Registrieren</button>
+                </div>
+                
+                <div class="teacher-login-link">
+                    <a href="#" onclick="showTeacherAuth(); return false;">🔐 Lehrer-Bereich</a>
+                </div>
+            </div>
+            
+            <!-- Lehrer Login -->
+            <div id="teacherAuthBox" class="login-box hidden">
+                <h2>Lehrer-Bereich</h2>
+                <input type="email" id="teacherEmail" placeholder="E-Mail Adresse">
+                <input type="password" id="teacherPassword" placeholder="Passwort">
+                <button onclick="loginTeacher()">Als Lehrer einloggen</button>
+                <div class="teacher-login-link">
+                    <a href="#" onclick="showStudentAuth(); return false;">← Zurück zum Schüler-Login</a>
+                </div>
+                <p class="hint">Lehrer-Accounts werden vom Administrator erstellt</p>
+            </div>
+        </div>
+
+        <!-- Schüler-Bereich -->
+        <div id="mainArea" class="container hidden">
+            <header>
+                <div class="header-top">
+                    <h1>Mein Kompetenzpass</h1>
+                    <span class="sync-status" id="syncStatus">✅ Synchronisiert</span>
+                </div>
+                <p id="welcomeMessage"></p>
+            </header>
+            
+            <div id="competencies">
+                <!-- Kompetenzen werden hier eingefügt -->
+            </div>
+            
+            <div class="button-group">
+                <button onclick="exportProgress()" class="primary">📄 Als PDF exportieren</button>
+                <button onclick="shareProgress()">🔗 Fortschritt teilen</button>
+                <button onclick="logoutUser()" class="secondary">Ausloggen</button>
+            </div>
+        </div>
+
+        <!-- Lehrer-Dashboard -->
+        <div id="teacherArea" class="container hidden">
+            <header>
+                <div class="header-top">
+                    <h1>🎓 Lehrer-Dashboard</h1>
+                    <span class="sync-status">☁️ Cloud-Modus</span>
+                </div>
+                <p class="subtitle">Zentrale Verwaltung für alle Klassen</p>
+            </header>
+
+            <!-- Tab Navigation -->
+            <div class="tab-navigation">
+                <button class="tab-button active" onclick="switchTab('competencies-tab')">
+                    📚 Kompetenzen
+                </button>
+                <button class="tab-button" onclick="switchTab('students-tab')">
+                    👥 Schüler
+                </button>
+                <button class="tab-button" onclick="switchTab('classes-tab')">
+                    🏫 Klassen
+                </button>
+                <button class="tab-button" onclick="switchTab('reports-tab')">
+                    📊 Berichte
+                </button>
+            </div>
+
+            <!-- Tab: Kompetenzen -->
+            <div id="competencies-tab" class="tab-content">
+                <div class="action-bar">
+                    <button onclick="addNewCompetency()" class="btn-add">
+                        ➕ Neue Kompetenz
+                    </button>
+                    <button onclick="importCompetencies()" class="btn-import">
+                        📥 Importieren
+                    </button>
+                    <button onclick="exportCompetencies()" class="btn-export">
+                        📤 Exportieren
+                    </button>
+                </div>
+                <div id="competencyList" class="competency-manager">
+                    <!-- Kompetenzen werden hier geladen -->
+                </div>
+            </div>
+
+            <!-- Tab: Schüler -->
+            <div id="students-tab" class="tab-content hidden">
+                <div class="filter-bar">
+                    <input type="text" id="studentSearch" placeholder="🔍 Suche..." onkeyup="filterStudents()">
+                    <select id="classFilter" onchange="filterStudents()">
+                        <option value="">Alle Klassen</option>
+                    </select>
+                    <button onclick="refreshStudentList()">🔄 Aktualisieren</button>
+                </div>
+                <div id="studentsList" class="students-grid">
+                    <!-- Echtzeit-Schülerdaten -->
+                </div>
+            </div>
+
+            <!-- Tab: Klassen -->
+            <div id="classes-tab" class="tab-content hidden">
+                <div class="action-bar">
+                    <button onclick="createClass()" class="btn-add">
+                        ➕ Neue Klasse erstellen
+                    </button>
+                </div>
+                <div id="classesList" class="classes-grid">
+                    <!-- Klassenübersicht -->
+                </div>
+            </div>
+
+            <!-- Tab: Berichte -->
+            <div id="reports-tab" class="tab-content hidden">
+                <div class="report-options">
+                    <h3>📈 Berichte generieren</h3>
+                    <select id="reportClass">
+                        <option value="">Klasse wählen...</option>
+                    </select>
+                    <select id="reportType">
+                        <option value="overview">Übersicht</option>
+                        <option value="detailed">Detailliert</option>
+                        <option value="progress">Fortschritt über Zeit</option>
+                    </select>
+                    <button onclick="generateReport()">Bericht erstellen</button>
+                </div>
+                <div id="reportContainer">
+                    <!-- Berichte werden hier angezeigt -->
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button onclick="logoutUser()" class="secondary">Abmelden</button>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module" src="app-firebase.js"></script>
+</body>
+</html>
