@@ -228,8 +228,13 @@ async function loadCompetencies() {
     }
 }
 
-// Standard-Kompetenzen erstellen
-async function createDefaultCompetencies() {
+// Manuell Standard-Kompetenzen erstellen (für Debugging)
+window.createDefaultCompetenciesManually = async function() {
+    if (userRole !== 'teacher') {
+        showNotification('Nur Lehrer können Kompetenzen erstellen!', 'error');
+        return;
+    }
+    
     const defaultCompetencies = [
         { name: "👨‍💻 Programmieren", description: "Grundlagen der Programmierung verstehen", order: 1 },
         { name: "📝 Textverarbeitung", description: "Dokumente erstellen und formatieren", order: 2 },
@@ -239,10 +244,27 @@ async function createDefaultCompetencies() {
         { name: "📊 Tabellenkalkulation", description: "Mit Daten und Formeln arbeiten", order: 6 }
     ];
     
-    for (const comp of defaultCompetencies) {
-        await setDoc(doc(collection(window.db, 'competencies')), comp);
+    showLoading(true);
+    
+    try {
+        for (const comp of defaultCompetencies) {
+            await setDoc(doc(collection(window.db, 'competencies')), {
+                ...comp,
+                createdBy: currentUser.uid,
+                createdAt: serverTimestamp()
+            });
+        }
+        
+        showNotification('Standard-Kompetenzen erstellt!', 'success');
+        await loadCompetencies();
+        await loadCompetencyManager();
+    } catch (error) {
+        console.error('Fehler:', error);
+        showNotification('Fehler: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
     }
-}
+};
 
 // ============= SCHÜLER-BEREICH =============
 async function showStudentArea(userData) {
