@@ -690,7 +690,6 @@ window.importCompetencies = async function() {
                 throw new Error('Ungültiges Format!');
             }
             
-            // Kompetenzen in Firestore speichern
             for (let i = 0; i < importedCompetencies.length; i++) {
                 const comp = importedCompetencies[i];
                 await setDoc(doc(collection(window.db, 'competencies')), {
@@ -727,7 +726,6 @@ window.exportCompetencies = async function() {
             order: comp.order
         }));
         
-        // JSON-Datei erstellen und herunterladen
         const dataStr = JSON.stringify(exportData, null, 2);
         const dataBlob = new Blob([dataStr], { type: 'application/json' });
         const url = URL.createObjectURL(dataBlob);
@@ -800,10 +798,10 @@ window.editCompetency = async function(competencyId) {
         const data = compDoc.data();
         
         const newName = prompt('Neuer Name:', data.name);
-        if (newName === null) return; // Abbrechen
+        if (newName === null) return;
         
         const newDescription = prompt('Neue Beschreibung:', data.description);
-        if (newDescription === null) return; // Abbrechen
+        if (newDescription === null) return;
         
         if (!newName.trim()) {
             showNotification('Name darf nicht leer sein!', 'error');
@@ -826,5 +824,4 @@ window.editCompetency = async function(competencyId) {
     } finally {
         showLoading(false);
     }
-};
 };
