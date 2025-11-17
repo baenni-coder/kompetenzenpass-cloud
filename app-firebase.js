@@ -423,6 +423,229 @@ window.addNewCompetency = async function() {
     }
 };
 
+// ============= KLASSEN-VERWALTUNG =============
+
+// Klassen laden und anzeigen
+async function loadClassesManager() {
+    const container = document.getElementById('classesList');
+    if (!container) return;
+    
+    container.innerHTML = '<div style="text-align: center; padding: 20px;">Lade Klassen...</div>';
+    
+    try {
+        const querySnapshot = await getDocs(collection(window.db, 'classes'));
+        
+        if (querySnapshot.empty) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 40px; color: #888;">
+                    <p style="font-size: 18px; margin-bottom: 10px;">📚 Noch keine Klassen vorhanden</p>
+                    <p>Erstelle deine erste Klasse mit dem Button oben!</p>
+                </div>
+            `;
+            return;
+        }
+        
+        const classes = [];
+        querySnapshot.forEach((doc) => {
+            classes.push({ id: doc.id, ...doc.data() });
+        });
+        
+        // Nach Name sortieren
+        classes.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        
+        container.innerHTML = '';
+        
+        // Für jede Klasse eine Karte erstellen
+        for (const classData of classes) {
+            // Schüler-Anzahl und Durchschnittsfortschritt berechnen
+            const studentsQuery = query(
+                collection(window.db, 'users'), 
+                where('role', '==', 'student'),
+                where('class', '==', classData.name)
+            );
+            const studentsSnapshot = await getDocs(studentsQuery);
+            const studentCount = studentsSnapshot.size;
+            
+            // Durchschnittsfortschritt berechnen
+            let totalProgress = 0;
+            let studentWithProgress = 0;
+            
+            for (const studentDoc of studentsSnapshot.docs) {
+                const progressDoc = await getDoc(doc(window.db, 'progress', studentDoc.id));
+                if (progressDoc.exists()) {
+                    const ratings = progressDoc.data().ratings || {};
+                    const totalPossible = competencies.length * 5;
+                    const currentTotal = Object.values(ratings).reduce((sum, rating) => sum + rating, 0);
+                    if (totalPossible > 0) {
+                        totalProgress += Math.round((currentTotal / totalPossible) * 100);
+                        studentWithProgress++;
+                    }
+                }
+            }
+            
+            const avgProgress = studentWithProgress > 0 ? Math.round(totalProgress / studentWithProgress) : 0;
+            
+            const card = document.createElement('div');
+            card.className = 'class-card';
+            card.style.cssText = `
+                background: white;
+                border-radius: 12px;
+                padding: 20px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                margin-bottom: 15px;
+                transition: transform 0.2s;
+                cursor: pointer;
+            `;
+            
+            card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div style="flex: 1;">
+                        <h3 style="margin: 0 0 10px 0; font-size: 24px; color: #667eea;">
+                            🏫 ${classData.name}
+                        </h3>
+                        <p style="color: #666; margin: 5px 0;">
+                            ${classData.description || 'Keine Beschreibung'}
+                        </p>
+                        <div style="display: flex; gap: 20px; margin-top: 15px;">
+                            <div>
+                                <span style="color: #888; font-size: 14px;">Schüler:</span>
+                                <strong style="font-size: 20px; color: #667eea; margin-left: 5px;">${studentCount}</strong>
+                            </div>
+                            <div>
+                                <span style="color: #888; font-size: 14px;">Ø Fortschritt:</span>
+                                <strong style="font-size: 20px; color: #48bb78; margin-left: 5px;">${avgProgress}%</strong>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button onclick="editClass('${classData.id}')" 
+                                class="btn-icon" 
+                                title="Bearbeiten"
+                                style="background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer;">
+                            ✏️
+                        </button>
+                        <button onclick="deleteClass('${classData.id}')" 
+                                class="btn-icon delete" 
+                                title="Löschen"
+                                style="background: #f56565; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer;">
+                            🗑️
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            card.addEventListener('mouseenter', () => {
+                card.style.transform = 'translateY(-2px)';
+                card.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+            });
+            
+            card.addEventListener('mouseleave', () => {
+                card.style.transform = 'translateY(0)';
+                card.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+            });
+            
+            container.appendChild(card);
+        }
+        
+    } catch (error) {
+        console.error('Fehler beim Laden der Klassen:', error);
+        container.innerHTML = `
+            <div style="text-align: center; padding: 40px; color: #f56565;">
+                <p>❌ Fehler beim Laden der Klassen</p>
+                <p style="font-size: 14px;">${error.message}</p>
+            </div>
+        `;
+    }
+}
+
+// Neue Klasse erstellen
+window.createClass = async function() {
+    const name = prompt('Klassenname (z.B. "7a", "8b"):');
+    if (!name || !name.trim()) return;
+    
+    const description = prompt('Beschreibung (z.B. "Schuljahr 2024/25"):') || '';
+    
+    showLoading(true);
+    
+    try {
+        await setDoc(doc(collection(window.db, 'classes')), {
+            name: name.trim(),
+            description: description.trim(),
+            createdBy: currentUser.uid,
+            createdAt: serverTimestamp()
+        });
+        
+        showNotification('Klasse erfolgreich erstellt!', 'success');
+        await loadClassesManager();
+    } catch (error) {
+        console.error('Fehler beim Erstellen:', error);
+        showNotification('Fehler beim Erstellen: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Klasse bearbeiten
+window.editClass = async function(classId) {
+    try {
+        const classDoc = await getDoc(doc(window.db, 'classes', classId));
+        
+        if (!classDoc.exists()) {
+            showNotification('Klasse nicht gefunden!', 'error');
+            return;
+        }
+        
+        const data = classDoc.data();
+        
+        const newName = prompt('Neuer Klassenname:', data.name);
+        if (newName === null) return;
+        
+        const newDescription = prompt('Neue Beschreibung:', data.description || '');
+        if (newDescription === null) return;
+        
+        if (!newName.trim()) {
+            showNotification('Name darf nicht leer sein!', 'error');
+            return;
+        }
+        
+        showLoading(true);
+        
+        await updateDoc(doc(window.db, 'classes', classId), {
+            name: newName.trim(),
+            description: newDescription.trim()
+        });
+        
+        showNotification('Klasse erfolgreich aktualisiert!', 'success');
+        await loadClassesManager();
+    } catch (error) {
+        console.error('Bearbeitungs-Fehler:', error);
+        showNotification('Fehler beim Bearbeiten: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Klasse löschen
+window.deleteClass = async function(classId) {
+    if (!confirm('Möchtest du diese Klasse wirklich löschen?\n\nHinweis: Die Schüler bleiben erhalten, nur die Klassengruppe wird gelöscht.')) {
+        return;
+    }
+    
+    showLoading(true);
+    
+    try {
+        await deleteDoc(doc(window.db, 'classes', classId));
+        
+        showNotification('Klasse erfolgreich gelöscht!', 'success');
+        await loadClassesManager();
+    } catch (error) {
+        console.error('Lösch-Fehler:', error);
+        showNotification('Fehler beim Löschen: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
 // ============= LEHRER: KOMPETENZEN IMPORT/EXPORT/EDIT/DELETE =============
 
 // Kompetenzen importieren
@@ -669,6 +892,15 @@ window.switchTab = function(tabId) {
     
     document.getElementById(tabId).classList.remove('hidden');
     event.target.classList.add('active');
+    
+    // Daten für den jeweiligen Tab laden
+    if (tabId === 'classes-tab') {
+        loadClassesManager();
+    } else if (tabId === 'students-tab') {
+        // Schüler sind bereits geladen durch Realtime-Updates
+    } else if (tabId === 'reports-tab') {
+        // Berichte werden später implementiert
+    }
 };
 
 // Login-Ansichten wechseln
