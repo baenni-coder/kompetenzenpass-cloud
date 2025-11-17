@@ -222,19 +222,14 @@ async function loadCompetencies() {
             competencies.push({ id: doc.id, ...doc.data() });
         });
         
-        competencies.sort((a, b) => a.order - b.order);
+        competencies.sort((a, b) => (a.order || 0) - (b.order || 0));
     } catch (error) {
         console.error('Fehler beim Laden der Kompetenzen:', error);
     }
 }
 
-// Manuell Standard-Kompetenzen erstellen (für Debugging)
-window.createDefaultCompetenciesManually = async function() {
-    if (userRole !== 'teacher') {
-        showNotification('Nur Lehrer können Kompetenzen erstellen!', 'error');
-        return;
-    }
-    
+// Standard-Kompetenzen erstellen
+async function createDefaultCompetencies() {
     const defaultCompetencies = [
         { name: "👨‍💻 Programmieren", description: "Grundlagen der Programmierung verstehen", order: 1 },
         { name: "📝 Textverarbeitung", description: "Dokumente erstellen und formatieren", order: 2 },
@@ -244,27 +239,10 @@ window.createDefaultCompetenciesManually = async function() {
         { name: "📊 Tabellenkalkulation", description: "Mit Daten und Formeln arbeiten", order: 6 }
     ];
     
-    showLoading(true);
-    
-    try {
-        for (const comp of defaultCompetencies) {
-            await setDoc(doc(collection(window.db, 'competencies')), {
-                ...comp,
-                createdBy: currentUser.uid,
-                createdAt: serverTimestamp()
-            });
-        }
-        
-        showNotification('Standard-Kompetenzen erstellt!', 'success');
-        await loadCompetencies();
-        await loadCompetencyManager();
-    } catch (error) {
-        console.error('Fehler:', error);
-        showNotification('Fehler: ' + error.message, 'error');
-    } finally {
-        showLoading(false);
+    for (const comp of defaultCompetencies) {
+        await setDoc(doc(collection(window.db, 'competencies')), comp);
     }
-};
+}
 
 // ============= SCHÜLER-BEREICH =============
 async function showStudentArea(userData) {
@@ -440,6 +418,164 @@ window.addNewCompetency = async function() {
     } catch (error) {
         console.error('Fehler:', error);
         showNotification('Fehler beim Hinzufügen!', 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// ============= LEHRER: KOMPETENZEN IMPORT/EXPORT/EDIT/DELETE =============
+
+// Kompetenzen importieren
+window.importCompetencies = async function() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        showLoading(true);
+        
+        try {
+            const text = await file.text();
+            const importedCompetencies = JSON.parse(text);
+            
+            if (!Array.isArray(importedCompetencies)) {
+                throw new Error('Ungültiges Format!');
+            }
+            
+            for (let i = 0; i < importedCompetencies.length; i++) {
+                const comp = importedCompetencies[i];
+                await setDoc(doc(collection(window.db, 'competencies')), {
+                    name: comp.name || 'Neue Kompetenz',
+                    description: comp.description || '',
+                    order: comp.order || (competencies.length + i + 1),
+                    createdBy: currentUser.uid,
+                    createdAt: serverTimestamp()
+                });
+            }
+            
+            showNotification(`${importedCompetencies.length} Kompetenzen erfolgreich importiert!`, 'success');
+            await loadCompetencies();
+            await loadCompetencyManager();
+        } catch (error) {
+            console.error('Import-Fehler:', error);
+            showNotification('Fehler beim Importieren: ' + error.message, 'error');
+        } finally {
+            showLoading(false);
+        }
+    };
+    
+    input.click();
+};
+
+// Kompetenzen exportieren
+window.exportCompetencies = async function() {
+    try {
+        showLoading(true);
+        
+        const exportData = competencies.map(comp => ({
+            name: comp.name,
+            description: comp.description,
+            order: comp.order
+        }));
+        
+        const dataStr = JSON.stringify(exportData, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `kompetenzen_${new Date().toISOString().split('T')[0]}.json`;
+        link.click();
+        
+        URL.revokeObjectURL(url);
+        showNotification('Kompetenzen erfolgreich exportiert!', 'success');
+    } catch (error) {
+        console.error('Export-Fehler:', error);
+        showNotification('Fehler beim Exportieren: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Kompetenz löschen
+window.deleteCompetency = async function(competencyId) {
+    if (!confirm('Möchtest du diese Kompetenz wirklich löschen?\n\nAchtung: Alle Schüler-Bewertungen für diese Kompetenz gehen verloren!')) {
+        return;
+    }
+    
+    showLoading(true);
+    
+    try {
+        // Kompetenz löschen
+        await deleteDoc(doc(window.db, 'competencies', competencyId));
+        
+        // Aus allen Schüler-Fortschritten entfernen
+        const studentsQuery = query(collection(window.db, 'users'), where('role', '==', 'student'));
+        const studentsSnapshot = await getDocs(studentsQuery);
+        
+        for (const studentDoc of studentsSnapshot.docs) {
+            const progressRef = doc(window.db, 'progress', studentDoc.id);
+            const progressDoc = await getDoc(progressRef);
+            
+            if (progressDoc.exists()) {
+                const ratings = progressDoc.data().ratings || {};
+                if (ratings[competencyId]) {
+                    delete ratings[competencyId];
+                    await updateDoc(progressRef, { ratings: ratings });
+                }
+            }
+        }
+        
+        showNotification('Kompetenz erfolgreich gelöscht!', 'success');
+        await loadCompetencies();
+        await loadCompetencyManager();
+    } catch (error) {
+        console.error('Lösch-Fehler:', error);
+        showNotification('Fehler beim Löschen: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Kompetenz bearbeiten
+window.editCompetency = async function(competencyId) {
+    try {
+        const compDoc = await getDoc(doc(window.db, 'competencies', competencyId));
+        
+        if (!compDoc.exists()) {
+            showNotification('Kompetenz nicht gefunden!', 'error');
+            return;
+        }
+        
+        const data = compDoc.data();
+        
+        const newName = prompt('Neuer Name:', data.name);
+        if (newName === null) return;
+        
+        const newDescription = prompt('Neue Beschreibung:', data.description);
+        if (newDescription === null) return;
+        
+        if (!newName.trim()) {
+            showNotification('Name darf nicht leer sein!', 'error');
+            return;
+        }
+        
+        showLoading(true);
+        
+        await updateDoc(doc(window.db, 'competencies', competencyId), {
+            name: newName.trim(),
+            description: newDescription.trim()
+        });
+        
+        showNotification('Kompetenz erfolgreich aktualisiert!', 'success');
+        await loadCompetencies();
+        await loadCompetencyManager();
+    } catch (error) {
+        console.error('Bearbeitungs-Fehler:', error);
+        showNotification('Fehler beim Bearbeiten: ' + error.message, 'error');
     } finally {
         showLoading(false);
     }
@@ -656,11 +792,38 @@ window.exportProgress = async function() {
         const ratings = progressDoc.data().ratings || {};
         const userData = userDoc.data();
         
-        // PDF generieren (gleicher Code wie vorher)
+        // PDF generieren
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
         
-        // ... [PDF-Generierung bleibt gleich wie im vorherigen Code]
+        // Titel
+        doc.setFontSize(20);
+        doc.text('Digitaler Kompetenzpass', 20, 20);
+        
+        doc.setFontSize(12);
+        doc.text(`Name: ${userData.name}`, 20, 35);
+        doc.text(`Klasse: ${userData.class}`, 20, 42);
+        doc.text(`Datum: ${new Date().toLocaleDateString('de-DE')}`, 20, 49);
+        
+        // Kompetenzen
+        let yPos = 65;
+        doc.setFontSize(14);
+        doc.text('Meine Kompetenzen:', 20, yPos);
+        yPos += 10;
+        
+        doc.setFontSize(10);
+        competencies.forEach(comp => {
+            const rating = ratings[comp.id] || 0;
+            const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+            
+            doc.text(`${comp.name}: ${stars}`, 20, yPos);
+            yPos += 7;
+            
+            if (yPos > 270) {
+                doc.addPage();
+                yPos = 20;
+            }
+        });
         
         doc.save(`Kompetenzpass_${userData.name}_${new Date().toISOString().split('T')[0]}.pdf`);
         showNotification('PDF erfolgreich erstellt!', 'success');
@@ -668,160 +831,9 @@ window.exportProgress = async function() {
         console.error('Fehler beim Export:', error);
         showNotification('Fehler beim PDF-Export!', 'error');
     }
-// ============= LEHRER: KOMPETENZEN IMPORT/EXPORT =============
-
-// Kompetenzen importieren
-window.importCompetencies = async function() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    
-    input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        
-        showLoading(true);
-        
-        try {
-            const text = await file.text();
-            const importedCompetencies = JSON.parse(text);
-            
-            if (!Array.isArray(importedCompetencies)) {
-                throw new Error('Ungültiges Format!');
-            }
-            
-            for (let i = 0; i < importedCompetencies.length; i++) {
-                const comp = importedCompetencies[i];
-                await setDoc(doc(collection(window.db, 'competencies')), {
-                    name: comp.name || 'Neue Kompetenz',
-                    description: comp.description || '',
-                    order: comp.order || (competencies.length + i + 1),
-                    createdBy: currentUser.uid,
-                    createdAt: serverTimestamp()
-                });
-            }
-            
-            showNotification(`${importedCompetencies.length} Kompetenzen erfolgreich importiert!`, 'success');
-            await loadCompetencies();
-            await loadCompetencyManager();
-        } catch (error) {
-            console.error('Import-Fehler:', error);
-            showNotification('Fehler beim Importieren: ' + error.message, 'error');
-        } finally {
-            showLoading(false);
-        }
-    };
-    
-    input.click();
 };
 
-// Kompetenzen exportieren
-window.exportCompetencies = async function() {
-    try {
-        showLoading(true);
-        
-        const exportData = competencies.map(comp => ({
-            name: comp.name,
-            description: comp.description,
-            order: comp.order
-        }));
-        
-        const dataStr = JSON.stringify(exportData, null, 2);
-        const dataBlob = new Blob([dataStr], { type: 'application/json' });
-        const url = URL.createObjectURL(dataBlob);
-        
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `kompetenzen_${new Date().toISOString().split('T')[0]}.json`;
-        link.click();
-        
-        URL.revokeObjectURL(url);
-        showNotification('Kompetenzen erfolgreich exportiert!', 'success');
-    } catch (error) {
-        console.error('Export-Fehler:', error);
-        showNotification('Fehler beim Exportieren: ' + error.message, 'error');
-    } finally {
-        showLoading(false);
-    }
-};
-
-// Kompetenz löschen
-window.deleteCompetency = async function(competencyId) {
-    if (!confirm('Möchtest du diese Kompetenz wirklich löschen?\n\nAchtung: Alle Schüler-Bewertungen für diese Kompetenz gehen verloren!')) {
-        return;
-    }
-    
-    showLoading(true);
-    
-    try {
-        // Kompetenz löschen
-        await deleteDoc(doc(window.db, 'competencies', competencyId));
-        
-        // Aus allen Schüler-Fortschritten entfernen
-        const studentsQuery = query(collection(window.db, 'users'), where('role', '==', 'student'));
-        const studentsSnapshot = await getDocs(studentsQuery);
-        
-        for (const studentDoc of studentsSnapshot.docs) {
-            const progressRef = doc(window.db, 'progress', studentDoc.id);
-            const progressDoc = await getDoc(progressRef);
-            
-            if (progressDoc.exists()) {
-                const ratings = progressDoc.data().ratings || {};
-                if (ratings[competencyId]) {
-                    delete ratings[competencyId];
-                    await updateDoc(progressRef, { ratings: ratings });
-                }
-            }
-        }
-        
-        showNotification('Kompetenz erfolgreich gelöscht!', 'success');
-        await loadCompetencies();
-        await loadCompetencyManager();
-    } catch (error) {
-        console.error('Lösch-Fehler:', error);
-        showNotification('Fehler beim Löschen: ' + error.message, 'error');
-    } finally {
-        showLoading(false);
-    }
-};
-
-// Kompetenz bearbeiten
-window.editCompetency = async function(competencyId) {
-    try {
-        const compDoc = await getDoc(doc(window.db, 'competencies', competencyId));
-        
-        if (!compDoc.exists()) {
-            showNotification('Kompetenz nicht gefunden!', 'error');
-            return;
-        }
-        
-        const data = compDoc.data();
-        
-        const newName = prompt('Neuer Name:', data.name);
-        if (newName === null) return;
-        
-        const newDescription = prompt('Neue Beschreibung:', data.description);
-        if (newDescription === null) return;
-        
-        if (!newName.trim()) {
-            showNotification('Name darf nicht leer sein!', 'error');
-            return;
-        }
-        
-        showLoading(true);
-        
-        await updateDoc(doc(window.db, 'competencies', competencyId), {
-            name: newName.trim(),
-            description: newDescription.trim()
-        });
-        
-        showNotification('Kompetenz erfolgreich aktualisiert!', 'success');
-        await loadCompetencies();
-        await loadCompetencyManager();
-    } catch (error) {
-        console.error('Bearbeitungs-Fehler:', error);
-        showNotification('Fehler beim Bearbeiten: ' + error.message, 'error');
-    } finally {
-        showLoading(false);
-    }
+// Fortschritt teilen (Placeholder)
+window.shareProgress = function() {
+    showNotification('Teilen-Funktion kommt bald!', 'info');
 };
