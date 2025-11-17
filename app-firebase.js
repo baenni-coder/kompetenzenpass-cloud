@@ -909,6 +909,177 @@ window.exportReportAsPDF = function(className) {
     showNotification('PDF-Export für Berichte kommt bald!', 'info');
 };
 
+// ============= DETAILLIERTE SCHÜLER-ANSICHT =============
+
+// Schüler-Details anzeigen und bearbeiten
+window.showStudentDetails = async function(studentId) {
+    showLoading(true);
+    
+    try {
+        const studentDoc = await getDoc(doc(window.db, 'users', studentId));
+        const progressDoc = await getDoc(doc(window.db, 'progress', studentId));
+        
+        if (!studentDoc.exists()) {
+            showNotification('Schüler nicht gefunden!', 'error');
+            return;
+        }
+        
+        const studentData = studentDoc.data();
+        const ratings = progressDoc.exists() ? (progressDoc.data().ratings || {}) : {};
+        
+        // Fortschritt berechnen
+        const totalPossible = competencies.length * 5;
+        const currentTotal = Object.values(ratings).reduce((sum, rating) => sum + rating, 0);
+        const progress = totalPossible > 0 ? Math.round((currentTotal / totalPossible) * 100) : 0;
+        
+        // Alle Klassen für Dropdown laden
+        const classesSnapshot = await getDocs(collection(window.db, 'classes'));
+        const classes = [];
+        classesSnapshot.forEach((doc) => {
+            classes.push({ id: doc.id, ...doc.data() });
+        });
+        classes.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        
+        // Modal erstellen
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fadeIn 0.3s;
+        `;
+        
+        let classOptions = '<option value="">Keine Klasse</option>';
+        classes.forEach(classData => {
+            const selected = classData.name === studentData.class ? 'selected' : '';
+            classOptions += `<option value="${classData.name}" ${selected}>${classData.name}</option>`;
+        });
+        
+        let competenciesHTML = '';
+        competencies.forEach(comp => {
+            const rating = ratings[comp.id] || 0;
+            const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+            const percentage = (rating / 5) * 100;
+            
+            competenciesHTML += `
+                <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #f0f0f0;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                        <span style="font-weight: 500; font-size: 14px;">${comp.name}</span>
+                        <span style="color: #f6ad55; font-size: 16px;">${stars}</span>
+                    </div>
+                    <div style="font-size: 12px; color: #888; margin-bottom: 8px;">${comp.description}</div>
+                    <div style="background: #e2e8f0; height: 6px; border-radius: 3px; overflow: hidden;">
+                        <div style="background: #667eea; width: ${percentage}%; height: 100%;"></div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 16px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 16px 16px 0 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                        <div>
+                            <h2 style="margin: 0; font-size: 24px;">👤 ${studentData.name}</h2>
+                            <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">${studentData.email}</p>
+                        </div>
+                        <button onclick="this.closest('div[style*=fixed]').remove()" 
+                                style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 18px;">
+                            ✕
+                        </button>
+                    </div>
+                    <div style="margin-top: 20px; display: flex; gap: 15px;">
+                        <div style="background: rgba(255,255,255,0.2); padding: 12px 20px; border-radius: 8px; flex: 1;">
+                            <div style="font-size: 12px; opacity: 0.9;">Klasse</div>
+                            <div style="font-size: 20px; font-weight: bold; margin-top: 2px;">${studentData.class || 'Keine'}</div>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.2); padding: 12px 20px; border-radius: 8px; flex: 1;">
+                            <div style="font-size: 12px; opacity: 0.9;">Fortschritt</div>
+                            <div style="font-size: 20px; font-weight: bold; margin-top: 2px;">${progress}%</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="padding: 25px;">
+                    <div style="margin-bottom: 25px;">
+                        <h3 style="margin: 0 0 15px 0; color: #667eea; font-size: 18px;">📝 Schüler bearbeiten</h3>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #4a5568; font-size: 14px;">Name</label>
+                            <input type="text" id="editStudentName" value="${studentData.name}" 
+                                   style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px;">
+                        </div>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #4a5568; font-size: 14px;">Klasse</label>
+                            <select id="editStudentClass" 
+                                    style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px;">
+                                ${classOptions}
+                            </select>
+                        </div>
+                        <button onclick="saveStudentChanges('${studentId}')" 
+                                style="background: #667eea; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; width: 100%;">
+                            💾 Änderungen speichern
+                        </button>
+                    </div>
+                    
+                    <div>
+                        <h3 style="margin: 0 0 15px 0; color: #667eea; font-size: 18px;">📊 Kompetenzen</h3>
+                        ${competenciesHTML}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+    } catch (error) {
+        console.error('Fehler beim Laden der Schüler-Details:', error);
+        showNotification('Fehler beim Laden der Details!', 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Schüler-Änderungen speichern
+window.saveStudentChanges = async function(studentId) {
+    const newName = document.getElementById('editStudentName').value;
+    const newClass = document.getElementById('editStudentClass').value;
+    
+    if (!newName || !newName.trim()) {
+        showNotification('Name darf nicht leer sein!', 'error');
+        return;
+    }
+    
+    showLoading(true);
+    
+    try {
+        await updateDoc(doc(window.db, 'users', studentId), {
+            name: newName.trim(),
+            class: newClass
+        });
+        
+        showNotification('Schüler erfolgreich aktualisiert!', 'success');
+        
+        // Modal schließen
+        document.querySelector('div[style*="position: fixed"]').remove();
+        
+        // Schülerliste neu laden
+        setupRealtimeStudentUpdates();
+        
+    } catch (error) {
+        console.error('Fehler beim Speichern:', error);
+        showNotification('Fehler beim Speichern: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
 // ============= LEHRER: KOMPETENZEN IMPORT/EXPORT/EDIT/DELETE =============
 
 // Kompetenzen importieren
@@ -1125,10 +1296,12 @@ async function updateStudentsList(students) {
         
         const card = document.createElement('div');
         card.className = 'student-card';
+        card.style.cursor = 'pointer';
+        card.onclick = () => showStudentDetails(student.id);
         
         card.innerHTML = `
             <div class="student-name">${student.name}</div>
-            <div class="student-info">Klasse: ${student.class}</div>
+            <div class="student-info">Klasse: ${student.class || 'Keine'}</div>
             <div class="student-info">Fortschritt: ${progress}%</div>
             <div class="student-progress">
                 <div class="mini-progress-bar">
