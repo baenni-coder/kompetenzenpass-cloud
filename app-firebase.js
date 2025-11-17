@@ -509,32 +509,52 @@ window.deleteCompetency = async function(competencyId) {
     showLoading(true);
     
     try {
-        // Kompetenz löschen
-        await deleteDoc(doc(window.db, 'competencies', competencyId));
-        
-        // Aus allen Schüler-Fortschritten entfernen
-        const studentsQuery = query(collection(window.db, 'users'), where('role', '==', 'student'));
-        const studentsSnapshot = await getDocs(studentsQuery);
-        
-        for (const studentDoc of studentsSnapshot.docs) {
-            const progressRef = doc(window.db, 'progress', studentDoc.id);
-            const progressDoc = await getDoc(progressRef);
+        // Zuerst aus allen Schüler-Fortschritten entfernen
+        try {
+            const studentsQuery = query(collection(window.db, 'users'), where('role', '==', 'student'));
+            const studentsSnapshot = await getDocs(studentsQuery);
             
-            if (progressDoc.exists()) {
-                const ratings = progressDoc.data().ratings || {};
-                if (ratings[competencyId]) {
-                    delete ratings[competencyId];
-                    await updateDoc(progressRef, { ratings: ratings });
+            for (const studentDoc of studentsSnapshot.docs) {
+                const progressRef = doc(window.db, 'progress', studentDoc.id);
+                const progressDoc = await getDoc(progressRef);
+                
+                if (progressDoc.exists()) {
+                    const ratings = progressDoc.data().ratings || {};
+                    if (ratings[competencyId]) {
+                        delete ratings[competencyId];
+                        await updateDoc(progressRef, { ratings: ratings });
+                    }
                 }
             }
+        } catch (progressError) {
+            // Fehler beim Aktualisieren der Progress-Daten ignorieren
+            console.warn('Fehler beim Aktualisieren der Schüler-Fortschritte:', progressError);
         }
         
+        // Dann Kompetenz löschen
+        await deleteDoc(doc(window.db, 'competencies', competencyId));
+        
         showNotification('Kompetenz erfolgreich gelöscht!', 'success');
+        
+        // Kompetenzen neu laden
         await loadCompetencies();
         await loadCompetencyManager();
+        
     } catch (error) {
         console.error('Lösch-Fehler:', error);
-        showNotification('Fehler beim Löschen: ' + error.message, 'error');
+        
+        // Prüfen ob die Kompetenz trotzdem gelöscht wurde
+        const checkDoc = await getDoc(doc(window.db, 'competencies', competencyId));
+        
+        if (!checkDoc.exists()) {
+            // Kompetenz wurde erfolgreich gelöscht, trotz Fehler
+            showNotification('Kompetenz erfolgreich gelöscht!', 'success');
+            await loadCompetencies();
+            await loadCompetencyManager();
+        } else {
+            // Tatsächlicher Fehler
+            showNotification('Fehler beim Löschen: ' + error.message, 'error');
+        }
     } finally {
         showLoading(false);
     }
