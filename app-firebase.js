@@ -646,6 +646,269 @@ window.deleteClass = async function(classId) {
     }
 };
 
+// ============= BERICHTE-FUNKTION =============
+
+// Berichte-Tab initialisieren
+async function loadReportsTab() {
+    const classSelect = document.getElementById('reportClass');
+    if (!classSelect) return;
+    
+    try {
+        // Alle Klassen laden
+        const classesSnapshot = await getDocs(collection(window.db, 'classes'));
+        
+        classSelect.innerHTML = '<option value="">Klasse wählen...</option>';
+        
+        const classes = [];
+        classesSnapshot.forEach((doc) => {
+            classes.push({ id: doc.id, ...doc.data() });
+        });
+        
+        // Nach Name sortieren
+        classes.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        
+        classes.forEach(classData => {
+            const option = document.createElement('option');
+            option.value = classData.name;
+            option.textContent = classData.name;
+            classSelect.appendChild(option);
+        });
+        
+    } catch (error) {
+        console.error('Fehler beim Laden der Klassen:', error);
+    }
+}
+
+// Bericht generieren
+window.generateReport = async function() {
+    const className = document.getElementById('reportClass').value;
+    const reportType = document.getElementById('reportType').value;
+    const container = document.getElementById('reportContainer');
+    
+    if (!className) {
+        showNotification('Bitte wähle zuerst eine Klasse!', 'error');
+        return;
+    }
+    
+    showLoading(true);
+    container.innerHTML = '<div style="text-align: center; padding: 40px;">Generiere Bericht...</div>';
+    
+    try {
+        // Schüler der Klasse laden
+        const studentsQuery = query(
+            collection(window.db, 'users'),
+            where('role', '==', 'student'),
+            where('class', '==', className)
+        );
+        const studentsSnapshot = await getDocs(studentsQuery);
+        
+        if (studentsSnapshot.empty) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 40px; color: #888;">
+                    <p style="font-size: 18px;">📚 Keine Schüler in Klasse "${className}" gefunden</p>
+                </div>
+            `;
+            showLoading(false);
+            return;
+        }
+        
+        const students = [];
+        for (const studentDoc of studentsSnapshot.docs) {
+            const studentData = studentDoc.data();
+            const progressDoc = await getDoc(doc(window.db, 'progress', studentDoc.id));
+            
+            let ratings = {};
+            let totalProgress = 0;
+            
+            if (progressDoc.exists()) {
+                ratings = progressDoc.data().ratings || {};
+                const totalPossible = competencies.length * 5;
+                const currentTotal = Object.values(ratings).reduce((sum, rating) => sum + rating, 0);
+                totalProgress = totalPossible > 0 ? Math.round((currentTotal / totalPossible) * 100) : 0;
+            }
+            
+            students.push({
+                id: studentDoc.id,
+                name: studentData.name,
+                email: studentData.email,
+                ratings: ratings,
+                totalProgress: totalProgress
+            });
+        }
+        
+        // Nach Namen sortieren
+        students.sort((a, b) => a.name.localeCompare(b.name));
+        
+        // Bericht je nach Typ generieren
+        if (reportType === 'overview') {
+            generateOverviewReport(className, students, container);
+        } else if (reportType === 'detailed') {
+            generateDetailedReport(className, students, container);
+        } else if (reportType === 'progress') {
+            generateProgressReport(className, students, container);
+        }
+        
+    } catch (error) {
+        console.error('Fehler beim Generieren des Berichts:', error);
+        container.innerHTML = `
+            <div style="text-align: center; padding: 40px; color: #f56565;">
+                <p>❌ Fehler beim Generieren des Berichts</p>
+                <p style="font-size: 14px;">${error.message}</p>
+            </div>
+        `;
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Übersichtsbericht
+function generateOverviewReport(className, students, container) {
+    const avgProgress = students.length > 0 
+        ? Math.round(students.reduce((sum, s) => sum + s.totalProgress, 0) / students.length) 
+        : 0;
+    
+    let html = `
+        <div style="background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #e2e8f0;">
+                <div>
+                    <h2 style="margin: 0; color: #667eea;">📊 Klassenübersicht: ${className}</h2>
+                    <p style="color: #888; margin: 5px 0 0 0;">Übersicht aller Schüler</p>
+                </div>
+                <button onclick="exportReportAsPDF('${className}')" 
+                        style="background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px;">
+                    📄 Als PDF exportieren
+                </button>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px;">
+                    <div style="font-size: 14px; opacity: 0.9;">Schüler gesamt</div>
+                    <div style="font-size: 36px; font-weight: bold; margin-top: 5px;">${students.length}</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: white; padding: 20px; border-radius: 10px;">
+                    <div style="font-size: 14px; opacity: 0.9;">Durchschnitt</div>
+                    <div style="font-size: 36px; font-weight: bold; margin-top: 5px;">${avgProgress}%</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #f6ad55 0%, #ed8936 100%); color: white; padding: 20px; border-radius: 10px;">
+                    <div style="font-size: 14px; opacity: 0.9;">Kompetenzen</div>
+                    <div style="font-size: 36px; font-weight: bold; margin-top: 5px;">${competencies.length}</div>
+                </div>
+            </div>
+            
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #f7fafc; border-bottom: 2px solid #e2e8f0;">
+                        <th style="padding: 15px; text-align: left; font-weight: 600; color: #4a5568;">Name</th>
+                        <th style="padding: 15px; text-align: center; font-weight: 600; color: #4a5568;">Fortschritt</th>
+                        <th style="padding: 15px; text-align: center; font-weight: 600; color: #4a5568;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    students.forEach((student, index) => {
+        const bgColor = index % 2 === 0 ? '#ffffff' : '#f7fafc';
+        const statusColor = student.totalProgress >= 75 ? '#48bb78' : 
+                           student.totalProgress >= 50 ? '#f6ad55' : '#f56565';
+        const statusText = student.totalProgress >= 75 ? '✓ Sehr gut' : 
+                          student.totalProgress >= 50 ? '◐ In Arbeit' : '◯ Beginnend';
+        
+        html += `
+            <tr style="background: ${bgColor}; border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 15px;">${student.name}</td>
+                <td style="padding: 15px; text-align: center;">
+                    <div style="background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden;">
+                        <div style="background: ${statusColor}; width: ${student.totalProgress}%; height: 100%;"></div>
+                    </div>
+                    <span style="font-size: 12px; color: #888; margin-top: 5px; display: block;">${student.totalProgress}%</span>
+                </td>
+                <td style="padding: 15px; text-align: center;">
+                    <span style="color: ${statusColor}; font-weight: 600;">${statusText}</span>
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+}
+
+// Detaillierter Bericht
+function generateDetailedReport(className, students, container) {
+    let html = `
+        <div style="background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #e2e8f0;">
+                <div>
+                    <h2 style="margin: 0; color: #667eea;">📋 Detaillierter Bericht: ${className}</h2>
+                    <p style="color: #888; margin: 5px 0 0 0;">Alle Kompetenzen pro Schüler</p>
+                </div>
+            </div>
+    `;
+    
+    students.forEach(student => {
+        html += `
+            <div style="margin-bottom: 30px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                <div style="background: #667eea; color: white; padding: 15px;">
+                    <h3 style="margin: 0; font-size: 18px;">${student.name}</h3>
+                    <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">Gesamtfortschritt: ${student.totalProgress}%</p>
+                </div>
+                <div style="padding: 20px;">
+        `;
+        
+        competencies.forEach(comp => {
+            const rating = student.ratings[comp.id] || 0;
+            const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+            const percentage = (rating / 5) * 100;
+            
+            html += `
+                <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #f0f0f0;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                        <span style="font-weight: 500;">${comp.name}</span>
+                        <span style="color: #f6ad55; font-size: 18px;">${stars}</span>
+                    </div>
+                    <div style="font-size: 12px; color: #888; margin-bottom: 8px;">${comp.description}</div>
+                    <div style="background: #e2e8f0; height: 6px; border-radius: 3px; overflow: hidden;">
+                        <div style="background: #667eea; width: ${percentage}%; height: 100%;"></div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += `
+                </div>
+            </div>
+        `;
+    });
+    
+    html += `</div>`;
+    
+    container.innerHTML = html;
+}
+
+// Fortschrittsbericht (Placeholder)
+function generateProgressReport(className, students, container) {
+    container.innerHTML = `
+        <div style="background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 20px;">📈</div>
+            <h2 style="color: #667eea; margin-bottom: 10px;">Fortschritt über Zeit</h2>
+            <p style="color: #888;">Diese Funktion wird in einer zukünftigen Version verfügbar sein.</p>
+            <p style="color: #888; font-size: 14px; margin-top: 10px;">
+                Hier werden Charts angezeigt, die den Fortschritt der Klasse über die Zeit darstellen.
+            </p>
+        </div>
+    `;
+}
+
+// PDF Export Placeholder
+window.exportReportAsPDF = function(className) {
+    showNotification('PDF-Export für Berichte kommt bald!', 'info');
+};
+
 // ============= LEHRER: KOMPETENZEN IMPORT/EXPORT/EDIT/DELETE =============
 
 // Kompetenzen importieren
@@ -899,7 +1162,7 @@ window.switchTab = function(tabId) {
     } else if (tabId === 'students-tab') {
         // Schüler sind bereits geladen durch Realtime-Updates
     } else if (tabId === 'reports-tab') {
-        // Berichte werden später implementiert
+        loadReportsTab();
     }
 };
 
