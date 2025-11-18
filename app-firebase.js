@@ -1,19 +1,19 @@
 // Firebase Module importieren
-import { 
-    createUserWithEmailAndPassword, 
-    signInWithEmailAndPassword, 
-    signOut, 
-    onAuthStateChanged 
+import {
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+    signOut,
+    onAuthStateChanged
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 
-import { 
-    doc, 
-    setDoc, 
-    getDoc, 
+import {
+    doc,
+    setDoc,
+    getDoc,
     getDocs,
-    collection, 
-    query, 
-    where, 
+    collection,
+    query,
+    where,
     onSnapshot,
     updateDoc,
     deleteDoc,
@@ -21,6 +21,14 @@ import {
     orderBy,
     limit
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+import {
+    ref,
+    uploadBytes,
+    getDownloadURL,
+    deleteObject,
+    listAll
+} from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js';
 
 // ============= GLOBALE VARIABLEN =============
 let currentUser = null;
@@ -34,6 +42,16 @@ const PROGRESS_THRESHOLD_EXCELLENT = 75; // >= 75% = Sehr gut
 const PROGRESS_THRESHOLD_GOOD = 50; // >= 50% = In Arbeit
 const MIN_NAME_LENGTH = 2;
 const MIN_PASSWORD_LENGTH = 6;
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB in Bytes
+const ALLOWED_FILE_TYPES = [
+    'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+    'application/pdf',
+    'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'text/plain',
+    'video/mp4', 'video/quicktime', 'video/x-msvideo'
+];
 
 // ============= INITIALISIERUNG =============
 window.addEventListener('DOMContentLoaded', async () => {
@@ -314,7 +332,7 @@ async function showStudentArea(userData) {
 }
 
 // Kompetenzen für Schüler rendern
-function renderStudentCompetencies(ratings) {
+async function renderStudentCompetencies(ratings) {
     const container = document.getElementById('competencies');
     container.innerHTML = '';
 
@@ -322,7 +340,7 @@ function renderStudentCompetencies(ratings) {
     const overallDiv = document.createElement('div');
     overallDiv.className = 'overall-progress';
     const percentage = calculateProgress(ratings);
-    
+
     overallDiv.innerHTML = `
         <h3>📈 Gesamtfortschritt</h3>
         <div class="big-progress-bar">
@@ -332,10 +350,14 @@ function renderStudentCompetencies(ratings) {
         </div>
     `;
     container.appendChild(overallDiv);
-    
+
     // Einzelne Kompetenzen
-    competencies.forEach(comp => {
+    for (const comp of competencies) {
         const rating = ratings[comp.id] || 0;
+
+        // Artefakte für diese Kompetenz zählen
+        const artifacts = await loadArtifacts(comp.id);
+        const artifactCount = artifacts.length;
 
         const card = document.createElement('div');
         card.className = 'competency-card';
@@ -343,7 +365,10 @@ function renderStudentCompetencies(ratings) {
         card.innerHTML = `
             <div class="competency-header">
                 <div class="competency-info">
-                    <div class="competency-title">${escapeHTML(comp.name)}</div>
+                    <div class="competency-title">
+                        ${escapeHTML(comp.name)}
+                        ${artifactCount > 0 ? `<span class="artifact-badge">${artifactCount} 📎</span>` : ''}
+                    </div>
                     <div class="competency-description">${escapeHTML(comp.description)}</div>
                 </div>
                 <div class="stars" data-competency="${escapeHTML(comp.id)}">
@@ -353,11 +378,16 @@ function renderStudentCompetencies(ratings) {
             <div class="progress-bar">
                 <div class="progress-fill" style="width: ${rating * 20}%"></div>
             </div>
+            <div class="competency-actions">
+                <button class="btn-artifact" onclick="showArtifactsModal('${escapeHTML(comp.id)}', '${escapeHTML(comp.name)}')" title="Artefakte verwalten">
+                    📎 Artefakte (${artifactCount})
+                </button>
+            </div>
         `;
 
         container.appendChild(card);
-    });
-    
+    }
+
     // Event Listener für Sterne
     document.querySelectorAll('.star').forEach(star => {
         star.addEventListener('click', async function() {
@@ -1015,21 +1045,25 @@ window.exportReportAsPDF = async function(className) {
 // Schüler-Details anzeigen und bearbeiten
 window.showStudentDetails = async function(studentId) {
     showLoading(true);
-    
+
     try {
         const studentDoc = await getDoc(doc(window.db, 'users', studentId));
         const progressDoc = await getDoc(doc(window.db, 'progress', studentId));
-        
+
         if (!studentDoc.exists()) {
             showNotification('Schüler nicht gefunden!', 'error');
             return;
         }
-        
+
         const studentData = studentDoc.data();
         const ratings = progressDoc.exists() ? (progressDoc.data().ratings || {}) : {};
 
         // Fortschritt berechnen
         const progress = calculateProgress(ratings);
+
+        // Artefakte des Schülers laden
+        const allArtifacts = await loadStudentArtifacts(studentId);
+        const totalArtifacts = allArtifacts.length;
         
         // Alle Klassen für Dropdown laden
         const classesSnapshot = await getDocs(collection(window.db, 'classes'));
@@ -1095,14 +1129,18 @@ window.showStudentDetails = async function(studentId) {
                             ✕
                         </button>
                     </div>
-                    <div style="margin-top: 20px; display: flex; gap: 15px;">
-                        <div style="background: rgba(255,255,255,0.2); padding: 12px 20px; border-radius: 8px; flex: 1;">
+                    <div style="margin-top: 20px; display: flex; gap: 15px; flex-wrap: wrap;">
+                        <div style="background: rgba(255,255,255,0.2); padding: 12px 20px; border-radius: 8px; flex: 1; min-width: 120px;">
                             <div style="font-size: 12px; opacity: 0.9;">Klasse</div>
                             <div style="font-size: 20px; font-weight: bold; margin-top: 2px;">${studentData.class || 'Keine'}</div>
                         </div>
-                        <div style="background: rgba(255,255,255,0.2); padding: 12px 20px; border-radius: 8px; flex: 1;">
+                        <div style="background: rgba(255,255,255,0.2); padding: 12px 20px; border-radius: 8px; flex: 1; min-width: 120px;">
                             <div style="font-size: 12px; opacity: 0.9;">Fortschritt</div>
                             <div style="font-size: 20px; font-weight: bold; margin-top: 2px;">${progress}%</div>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.2); padding: 12px 20px; border-radius: 8px; flex: 1; min-width: 120px;">
+                            <div style="font-size: 12px; opacity: 0.9;">Artefakte</div>
+                            <div style="font-size: 20px; font-weight: bold; margin-top: 2px;">${totalArtifacts} 📎</div>
                         </div>
                     </div>
                 </div>
@@ -1127,11 +1165,49 @@ window.showStudentDetails = async function(studentId) {
                             💾 Änderungen speichern
                         </button>
                     </div>
-                    
-                    <div>
+
+                    <div style="margin-bottom: 25px;">
                         <h3 style="margin: 0 0 15px 0; color: #667eea; font-size: 18px;">📊 Kompetenzen</h3>
                         ${competenciesHTML}
                     </div>
+
+                    ${totalArtifacts > 0 ? `
+                    <div>
+                        <h3 style="margin: 0 0 15px 0; color: #667eea; font-size: 18px;">📎 Hochgeladene Artefakte (${totalArtifacts})</h3>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; max-height: 300px; overflow-y: auto;">
+                            ${allArtifacts.map(artifact => {
+                                const isImage = artifact.fileType.startsWith('image/');
+                                const uploadDate = artifact.uploadedAt ? new Date(artifact.uploadedAt.toMillis()).toLocaleDateString('de-DE') : 'Unbekannt';
+                                const fileIcon = getFileIcon(artifact.fileType);
+                                const compName = artifact.competencyName || 'Unbekannt';
+
+                                return `
+                                    <div style="background: #f8f9fa; border-radius: 8px; padding: 10px; text-align: center; border: 2px solid #e0e0e0;">
+                                        <div style="margin-bottom: 8px;">
+                                            ${isImage
+                                                ? `<img src="${artifact.downloadUrl}" alt="${escapeHTML(artifact.fileName)}" style="width: 100%; height: 80px; object-fit: cover; border-radius: 5px;">`
+                                                : `<div style="font-size: 32px; margin: 10px 0;">${fileIcon}</div>`
+                                            }
+                                        </div>
+                                        <div style="font-size: 10px; font-weight: bold; color: #333; margin-bottom: 3px; word-break: break-word;">
+                                            ${escapeHTML(artifact.fileName.length > 20 ? artifact.fileName.substring(0, 20) + '...' : artifact.fileName)}
+                                        </div>
+                                        <div style="font-size: 9px; color: #888; margin-bottom: 3px;">
+                                            ${escapeHTML(compName)}
+                                        </div>
+                                        <div style="font-size: 9px; color: #888;">
+                                            ${uploadDate}
+                                        </div>
+                                        <button onclick="window.open('${artifact.downloadUrl}', '_blank')"
+                                                style="background: #667eea; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; margin-top: 5px; width: 100%;">
+                                            📥 Öffnen
+                                        </button>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                    ` : ''}
                 </div>
             </div>
         `;
@@ -1626,6 +1702,310 @@ function handleAuthError(error) {
         default:
             showNotification('Fehler: ' + error.message, 'error');
     }
+}
+
+// ============= ARTEFAKT-UPLOAD UND -VERWALTUNG =============
+
+// Artefakt hochladen
+window.uploadArtifact = async function(competencyId, competencyName) {
+    if (!currentUser || userRole !== 'student') {
+        showNotification('Nur Schüler können Artefakte hochladen!', 'error');
+        return;
+    }
+
+    // File Input erstellen
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = ALLOWED_FILE_TYPES.join(',');
+
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // Dateigröße prüfen
+        if (file.size > MAX_FILE_SIZE) {
+            showNotification(`Datei ist zu groß! Maximal ${MAX_FILE_SIZE / 1024 / 1024}MB erlaubt.`, 'error');
+            return;
+        }
+
+        // Dateityp prüfen
+        if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+            showNotification('Dieser Dateityp wird nicht unterstützt!', 'error');
+            return;
+        }
+
+        // Beschreibung abfragen
+        const description = prompt('Kurze Beschreibung des Artefakts (optional):') || '';
+
+        showLoading(true);
+        showNotification('Datei wird hochgeladen...', 'info');
+
+        try {
+            // Eindeutigen Dateinamen generieren
+            const timestamp = Date.now();
+            const fileName = `${timestamp}_${file.name}`;
+            const storagePath = `artifacts/${currentUser.uid}/${competencyId}/${fileName}`;
+
+            // Datei zu Firebase Storage hochladen
+            const storageRef = ref(window.storage, storagePath);
+            const snapshot = await uploadBytes(storageRef, file);
+
+            // Download-URL abrufen
+            const downloadUrl = await getDownloadURL(snapshot.ref);
+
+            // Metadaten in Firestore speichern
+            await setDoc(doc(collection(window.db, 'artifacts')), {
+                userId: currentUser.uid,
+                competencyId: competencyId,
+                competencyName: competencyName,
+                fileName: file.name,
+                fileType: file.type,
+                fileSize: file.size,
+                storagePath: storagePath,
+                downloadUrl: downloadUrl,
+                description: description.trim(),
+                uploadedAt: serverTimestamp()
+            });
+
+            showNotification('Artefakt erfolgreich hochgeladen! 🎉', 'success');
+
+            // Artefakte neu laden
+            await loadArtifacts(competencyId);
+
+        } catch (error) {
+            console.error('Upload-Fehler:', error);
+            showNotification('Fehler beim Hochladen: ' + error.message, 'error');
+        } finally {
+            showLoading(false);
+        }
+    };
+
+    input.click();
+};
+
+// Artefakte für eine Kompetenz laden
+async function loadArtifacts(competencyId) {
+    if (!currentUser) return [];
+
+    try {
+        const q = query(
+            collection(window.db, 'artifacts'),
+            where('userId', '==', currentUser.uid),
+            where('competencyId', '==', competencyId)
+        );
+
+        const querySnapshot = await getDocs(q);
+        const artifacts = [];
+
+        querySnapshot.forEach((doc) => {
+            artifacts.push({ id: doc.id, ...doc.data() });
+        });
+
+        // Nach Upload-Datum sortieren (neueste zuerst)
+        artifacts.sort((a, b) => {
+            const timeA = a.uploadedAt?.toMillis() || 0;
+            const timeB = b.uploadedAt?.toMillis() || 0;
+            return timeB - timeA;
+        });
+
+        return artifacts;
+
+    } catch (error) {
+        console.error('Fehler beim Laden der Artefakte:', error);
+        return [];
+    }
+}
+
+// Alle Artefakte eines Schülers laden (für Lehrer)
+async function loadStudentArtifacts(studentId) {
+    try {
+        const q = query(
+            collection(window.db, 'artifacts'),
+            where('userId', '==', studentId)
+        );
+
+        const querySnapshot = await getDocs(q);
+        const artifacts = [];
+
+        querySnapshot.forEach((doc) => {
+            artifacts.push({ id: doc.id, ...doc.data() });
+        });
+
+        // Nach Upload-Datum sortieren (neueste zuerst)
+        artifacts.sort((a, b) => {
+            const timeA = a.uploadedAt?.toMillis() || 0;
+            const timeB = b.uploadedAt?.toMillis() || 0;
+            return timeB - timeA;
+        });
+
+        return artifacts;
+
+    } catch (error) {
+        console.error('Fehler beim Laden der Schüler-Artefakte:', error);
+        return [];
+    }
+}
+
+// Artefakt löschen
+window.deleteArtifact = async function(artifactId, storagePath) {
+    if (!confirm('Möchtest du dieses Artefakt wirklich löschen?')) {
+        return;
+    }
+
+    showLoading(true);
+
+    try {
+        // Datei aus Storage löschen
+        const storageRef = ref(window.storage, storagePath);
+        await deleteObject(storageRef);
+
+        // Metadaten aus Firestore löschen
+        await deleteDoc(doc(window.db, 'artifacts', artifactId));
+
+        showNotification('Artefakt erfolgreich gelöscht!', 'success');
+
+        // Ansicht aktualisieren
+        if (userRole === 'student') {
+            await loadUserData();
+        }
+
+    } catch (error) {
+        console.error('Fehler beim Löschen:', error);
+        showNotification('Fehler beim Löschen: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Artefakte für Schüler anzeigen
+window.showArtifactsModal = async function(competencyId, competencyName) {
+    showLoading(true);
+
+    try {
+        const artifacts = await loadArtifacts(competencyId);
+
+        // Modal erstellen
+        const modal = document.createElement('div');
+        modal.id = 'artifactsModal';
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fadeIn 0.3s;
+        `;
+
+        let artifactsHTML = '';
+
+        if (artifacts.length === 0) {
+            artifactsHTML = `
+                <div style="text-align: center; padding: 40px; color: #888;">
+                    <p style="font-size: 18px; margin-bottom: 10px;">📦 Noch keine Artefakte vorhanden</p>
+                    <p style="font-size: 14px;">Lade dein erstes Artefakt hoch!</p>
+                </div>
+            `;
+        } else {
+            artifactsHTML = '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px;">';
+
+            artifacts.forEach(artifact => {
+                const isImage = artifact.fileType.startsWith('image/');
+                const uploadDate = artifact.uploadedAt ? new Date(artifact.uploadedAt.toMillis()).toLocaleDateString('de-DE') : 'Unbekannt';
+                const fileIcon = getFileIcon(artifact.fileType);
+
+                artifactsHTML += `
+                    <div class="artifact-card" style="background: #f8f9fa; border-radius: 10px; padding: 15px; text-align: center; border: 2px solid #e0e0e0; transition: all 0.3s;">
+                        <div style="margin-bottom: 10px;">
+                            ${isImage
+                                ? `<img src="${artifact.downloadUrl}" alt="${escapeHTML(artifact.fileName)}" style="width: 100%; height: 120px; object-fit: cover; border-radius: 8px;">`
+                                : `<div style="font-size: 48px; margin: 20px 0;">${fileIcon}</div>`
+                            }
+                        </div>
+                        <div style="font-size: 12px; font-weight: bold; color: #333; margin-bottom: 5px; word-break: break-word;">
+                            ${escapeHTML(artifact.fileName)}
+                        </div>
+                        <div style="font-size: 11px; color: #888; margin-bottom: 5px;">
+                            ${formatFileSize(artifact.fileSize)}
+                        </div>
+                        <div style="font-size: 11px; color: #888; margin-bottom: 10px;">
+                            ${uploadDate}
+                        </div>
+                        ${artifact.description ? `<div style="font-size: 11px; color: #666; font-style: italic; margin-bottom: 10px;">"${escapeHTML(artifact.description)}"</div>` : ''}
+                        <div style="display: flex; gap: 5px; justify-content: center;">
+                            <button onclick="window.open('${artifact.downloadUrl}', '_blank')"
+                                    style="background: #667eea; color: white; border: none; padding: 6px 12px; border-radius: 5px; cursor: pointer; font-size: 12px;">
+                                📥 Öffnen
+                            </button>
+                            <button onclick="deleteArtifact('${artifact.id}', '${artifact.storagePath}')"
+                                    style="background: #f56565; color: white; border: none; padding: 6px 12px; border-radius: 5px; cursor: pointer; font-size: 12px;">
+                                🗑️ Löschen
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            artifactsHTML += '</div>';
+        }
+
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 16px; max-width: 800px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 16px 16px 0 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2 style="margin: 0; font-size: 20px;">📦 Meine Artefakte</h2>
+                        <button onclick="document.getElementById('artifactsModal').remove()"
+                                style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 18px;">
+                            ✕
+                        </button>
+                    </div>
+                    <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 14px;">${escapeHTML(competencyName)}</p>
+                </div>
+
+                <div style="padding: 25px;">
+                    <div style="margin-bottom: 20px;">
+                        <button onclick="uploadArtifact('${competencyId}', '${escapeHTML(competencyName)}'); document.getElementById('artifactsModal').remove();"
+                                style="background: #48bb78; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; width: 100%;">
+                            ➕ Neues Artefakt hochladen
+                        </button>
+                    </div>
+
+                    ${artifactsHTML}
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+    } catch (error) {
+        console.error('Fehler beim Laden der Artefakte:', error);
+        showNotification('Fehler beim Laden der Artefakte!', 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Dateityp-Icon ermitteln
+function getFileIcon(fileType) {
+    if (fileType.startsWith('image/')) return '🖼️';
+    if (fileType.includes('pdf')) return '📄';
+    if (fileType.includes('word')) return '📝';
+    if (fileType.includes('excel') || fileType.includes('sheet')) return '📊';
+    if (fileType.includes('powerpoint') || fileType.includes('presentation')) return '📽️';
+    if (fileType.startsWith('video/')) return '🎬';
+    if (fileType.startsWith('text/')) return '📃';
+    return '📁';
+}
+
+// Dateigröße formatieren
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 // ============= PDF EXPORT (bleibt lokal) =============

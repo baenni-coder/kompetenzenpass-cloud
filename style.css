@@ -621,45 +621,110 @@ button.secondary:hover {
     display: inline-block;
 }
 
+/* Artifact Components */
+.artifact-badge {
+    display: inline-block;
+    background: #48bb78;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    margin-left: 8px;
+    font-weight: normal;
+}
+
+.competency-actions {
+    margin-top: 15px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.btn-artifact {
+    background: #667eea;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s;
+}
+
+.btn-artifact:hover {
+    background: #5a67d8;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.artifact-card {
+    transition: all 0.3s;
+}
+
+.artifact-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-color: #667eea !important;
+}
+
+/* Fade-in Animation for Modals */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
 /* Mobile Responsive */
 @media (max-width: 600px) {
     .container {
         padding: 20px;
     }
-    
+
     .header-top {
         flex-direction: column;
         gap: 10px;
     }
-    
+
     .sync-status {
         width: 100%;
         text-align: center;
     }
-    
+
     .button-group {
         flex-direction: column;
     }
-    
+
     button {
         width: 100%;
     }
-    
+
     .competency-header {
         flex-direction: column;
         text-align: center;
     }
-    
+
     .star {
         font-size: 25px;
     }
-    
+
     .tab-navigation {
         flex-direction: column;
     }
-    
+
     .tab-button {
         width: 100%;
         text-align: left;
+    }
+
+    .artifact-badge {
+        font-size: 10px;
+        padding: 2px 6px;
+    }
+
+    .btn-artifact {
+        font-size: 12px;
+        padding: 6px 12px;
     }
 }
