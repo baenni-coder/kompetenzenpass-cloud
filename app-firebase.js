@@ -28,12 +28,26 @@ let userRole = null; // 'student' oder 'teacher'
 let competencies = [];
 let unsubscribeListeners = [];
 
+// ============= KONSTANTEN =============
+const MAX_RATING = 5; // Maximale Anzahl Sterne
+const PROGRESS_THRESHOLD_EXCELLENT = 75; // >= 75% = Sehr gut
+const PROGRESS_THRESHOLD_GOOD = 50; // >= 50% = In Arbeit
+const MIN_NAME_LENGTH = 2;
+const MIN_PASSWORD_LENGTH = 6;
+
 // ============= INITIALISIERUNG =============
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
+    // Kompetenzen zuerst laden (für beide Rollen benötigt)
+    await loadCompetencies();
+
     // Auth State Observer
     onAuthStateChanged(window.auth, async (user) => {
         if (user) {
             currentUser = user;
+            // Sicherstellen, dass Kompetenzen geladen sind
+            if (competencies.length === 0) {
+                await loadCompetencies();
+            }
             await loadUserData();
         } else {
             currentUser = null;
@@ -41,9 +55,6 @@ window.addEventListener('DOMContentLoaded', () => {
             showLoginArea();
         }
     });
-    
-    // Kompetenzen laden
-    loadCompetencies();
 });
 
 // ============= AUTHENTIFIZIERUNG =============
@@ -52,9 +63,15 @@ window.addEventListener('DOMContentLoaded', () => {
 window.loginStudent = async function() {
     const email = document.getElementById('studentEmail').value;
     const password = document.getElementById('studentPassword').value;
-    
+
     if (!email || !password) {
         showNotification('Bitte alle Felder ausfüllen!', 'error');
+        return;
+    }
+
+    // Email validieren
+    if (!isValidEmail(email)) {
+        showNotification('Bitte eine gültige E-Mail Adresse eingeben!', 'error');
         return;
     }
     
@@ -76,14 +93,32 @@ window.registerStudent = async function() {
     const email = document.getElementById('registerEmail').value;
     const password = document.getElementById('registerPassword').value;
     const className = document.getElementById('registerClass').value;
-    
+
     if (!name || !email || !password || !className) {
         showNotification('Bitte alle Felder ausfüllen!', 'error');
         return;
     }
-    
-    if (password.length < 6) {
-        showNotification('Passwort muss mindestens 6 Zeichen lang sein!', 'error');
+
+    // Name validieren
+    if (name.trim().length < MIN_NAME_LENGTH) {
+        showNotification(`Name muss mindestens ${MIN_NAME_LENGTH} Zeichen lang sein!`, 'error');
+        return;
+    }
+
+    // Email validieren
+    if (!isValidEmail(email)) {
+        showNotification('Bitte eine gültige E-Mail Adresse eingeben!', 'error');
+        return;
+    }
+
+    if (password.length < MIN_PASSWORD_LENGTH) {
+        showNotification(`Passwort muss mindestens ${MIN_PASSWORD_LENGTH} Zeichen lang sein!`, 'error');
+        return;
+    }
+
+    // Klassenname validieren
+    if (className.trim().length < 1) {
+        showNotification('Bitte eine Klasse angeben!', 'error');
         return;
     }
     
@@ -122,9 +157,15 @@ window.registerStudent = async function() {
 window.loginTeacher = async function() {
     const email = document.getElementById('teacherEmail').value;
     const password = document.getElementById('teacherPassword').value;
-    
+
     if (!email || !password) {
         showNotification('Bitte alle Felder ausfüllen!', 'error');
+        return;
+    }
+
+    // Email validieren
+    if (!isValidEmail(email)) {
+        showNotification('Bitte eine gültige E-Mail Adresse eingeben!', 'error');
         return;
     }
     
@@ -238,9 +279,13 @@ async function createDefaultCompetencies() {
         { name: "🔐 Digitale Sicherheit", description: "Sicher im Internet unterwegs", order: 5 },
         { name: "📊 Tabellenkalkulation", description: "Mit Daten und Formeln arbeiten", order: 6 }
     ];
-    
+
     for (const comp of defaultCompetencies) {
-        await setDoc(doc(collection(window.db, 'competencies')), comp);
+        await setDoc(doc(collection(window.db, 'competencies')), {
+            ...comp,
+            createdAt: serverTimestamp(),
+            createdBy: 'system'
+        });
     }
 }
 
@@ -250,8 +295,8 @@ async function showStudentArea(userData) {
     document.getElementById('teacherArea').classList.add('hidden');
     document.getElementById('mainArea').classList.remove('hidden');
     
-    document.getElementById('welcomeMessage').innerHTML = 
-        `Hallo <strong>${userData.name}</strong>! Klasse: ${userData.class}`;
+    document.getElementById('welcomeMessage').innerHTML =
+        `Hallo <strong>${escapeHTML(userData.name)}</strong>! Klasse: ${escapeHTML(userData.class)}`;
     
     // Fortschritt laden und Echtzeit-Updates einrichten
     const progressRef = doc(window.db, 'progress', currentUser.uid);
@@ -272,13 +317,11 @@ async function showStudentArea(userData) {
 function renderStudentCompetencies(ratings) {
     const container = document.getElementById('competencies');
     container.innerHTML = '';
-    
+
     // Gesamtfortschritt
     const overallDiv = document.createElement('div');
     overallDiv.className = 'overall-progress';
-    const totalPossible = competencies.length * 5;
-    const currentTotal = Object.values(ratings).reduce((sum, rating) => sum + rating, 0);
-    const percentage = totalPossible > 0 ? Math.round((currentTotal / totalPossible) * 100) : 0;
+    const percentage = calculateProgress(ratings);
     
     overallDiv.innerHTML = `
         <h3>📈 Gesamtfortschritt</h3>
@@ -293,17 +336,17 @@ function renderStudentCompetencies(ratings) {
     // Einzelne Kompetenzen
     competencies.forEach(comp => {
         const rating = ratings[comp.id] || 0;
-        
+
         const card = document.createElement('div');
         card.className = 'competency-card';
-        
+
         card.innerHTML = `
             <div class="competency-header">
                 <div class="competency-info">
-                    <div class="competency-title">${comp.name}</div>
-                    <div class="competency-description">${comp.description}</div>
+                    <div class="competency-title">${escapeHTML(comp.name)}</div>
+                    <div class="competency-description">${escapeHTML(comp.description)}</div>
                 </div>
-                <div class="stars" data-competency="${comp.id}">
+                <div class="stars" data-competency="${escapeHTML(comp.id)}">
                     ${createStars(comp.id, rating)}
                 </div>
             </div>
@@ -311,7 +354,7 @@ function renderStudentCompetencies(ratings) {
                 <div class="progress-fill" style="width: ${rating * 20}%"></div>
             </div>
         `;
-        
+
         container.appendChild(card);
     });
     
@@ -371,22 +414,22 @@ async function showTeacherDashboard(userData) {
 async function loadCompetencyManager() {
     const container = document.getElementById('competencyList');
     container.innerHTML = '';
-    
+
     competencies.forEach(comp => {
         const item = document.createElement('div');
         item.className = 'competency-item';
-        
+
         item.innerHTML = `
             <div class="competency-content">
-                <div class="competency-name">${comp.name}</div>
-                <div class="competency-desc">${comp.description}</div>
+                <div class="competency-name">${escapeHTML(comp.name)}</div>
+                <div class="competency-desc">${escapeHTML(comp.description)}</div>
             </div>
             <div class="competency-actions">
-                <button class="btn-icon" onclick="editCompetency('${comp.id}')" title="Bearbeiten">✏️</button>
-                <button class="btn-icon delete" onclick="deleteCompetency('${comp.id}')" title="Löschen">🗑️</button>
+                <button class="btn-icon" onclick="editCompetency('${escapeHTML(comp.id)}')" title="Bearbeiten">✏️</button>
+                <button class="btn-icon delete" onclick="deleteCompetency('${escapeHTML(comp.id)}')" title="Löschen">🗑️</button>
             </div>
         `;
-        
+
         container.appendChild(item);
     });
 }
@@ -474,10 +517,9 @@ async function loadClassesManager() {
                 const progressDoc = await getDoc(doc(window.db, 'progress', studentDoc.id));
                 if (progressDoc.exists()) {
                     const ratings = progressDoc.data().ratings || {};
-                    const totalPossible = competencies.length * 5;
-                    const currentTotal = Object.values(ratings).reduce((sum, rating) => sum + rating, 0);
-                    if (totalPossible > 0) {
-                        totalProgress += Math.round((currentTotal / totalPossible) * 100);
+                    const progress = calculateProgress(ratings);
+                    if (progress > 0) {
+                        totalProgress += progress;
                         studentWithProgress++;
                     }
                 }
@@ -716,15 +758,13 @@ window.generateReport = async function() {
         for (const studentDoc of studentsSnapshot.docs) {
             const studentData = studentDoc.data();
             const progressDoc = await getDoc(doc(window.db, 'progress', studentDoc.id));
-            
+
             let ratings = {};
             let totalProgress = 0;
-            
+
             if (progressDoc.exists()) {
                 ratings = progressDoc.data().ratings || {};
-                const totalPossible = competencies.length * 5;
-                const currentTotal = Object.values(ratings).reduce((sum, rating) => sum + rating, 0);
-                totalProgress = totalPossible > 0 ? Math.round((currentTotal / totalPossible) * 100) : 0;
+                totalProgress = calculateProgress(ratings);
             }
             
             students.push({
@@ -808,14 +848,14 @@ function generateOverviewReport(className, students, container) {
     
     students.forEach((student, index) => {
         const bgColor = index % 2 === 0 ? '#ffffff' : '#f7fafc';
-        const statusColor = student.totalProgress >= 75 ? '#48bb78' : 
-                           student.totalProgress >= 50 ? '#f6ad55' : '#f56565';
-        const statusText = student.totalProgress >= 75 ? '✓ Sehr gut' : 
-                          student.totalProgress >= 50 ? '◐ In Arbeit' : '◯ Beginnend';
+        const statusColor = student.totalProgress >= PROGRESS_THRESHOLD_EXCELLENT ? '#48bb78' :
+                           student.totalProgress >= PROGRESS_THRESHOLD_GOOD ? '#f6ad55' : '#f56565';
+        const statusText = student.totalProgress >= PROGRESS_THRESHOLD_EXCELLENT ? '✓ Sehr gut' :
+                          student.totalProgress >= PROGRESS_THRESHOLD_GOOD ? '◐ In Arbeit' : '◯ Beginnend';
         
         html += `
             <tr style="background: ${bgColor}; border-bottom: 1px solid #e2e8f0;">
-                <td style="padding: 15px;">${student.name}</td>
+                <td style="padding: 15px;">${escapeHTML(student.name)}</td>
                 <td style="padding: 15px; text-align: center;">
                     <div style="background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden;">
                         <div style="background: ${statusColor}; width: ${student.totalProgress}%; height: 100%;"></div>
@@ -858,24 +898,24 @@ function generateDetailedReport(className, students, container) {
         html += `
             <div style="margin-bottom: 30px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
                 <div style="background: #667eea; color: white; padding: 15px;">
-                    <h3 style="margin: 0; font-size: 18px;">${student.name}</h3>
+                    <h3 style="margin: 0; font-size: 18px;">${escapeHTML(student.name)}</h3>
                     <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">Gesamtfortschritt: ${student.totalProgress}%</p>
                 </div>
                 <div style="padding: 20px;">
         `;
-        
+
         competencies.forEach(comp => {
             const rating = student.ratings[comp.id] || 0;
-            const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-            const percentage = (rating / 5) * 100;
-            
+            const stars = '★'.repeat(rating) + '☆'.repeat(MAX_RATING - rating);
+            const percentage = (rating / MAX_RATING) * 100;
+
             html += `
                 <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #f0f0f0;">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                        <span style="font-weight: 500;">${comp.name}</span>
+                        <span style="font-weight: 500;">${escapeHTML(comp.name)}</span>
                         <span style="color: #f6ad55; font-size: 18px;">${stars}</span>
                     </div>
-                    <div style="font-size: 12px; color: #888; margin-bottom: 8px;">${comp.description}</div>
+                    <div style="font-size: 12px; color: #888; margin-bottom: 8px;">${escapeHTML(comp.description)}</div>
                     <div style="background: #e2e8f0; height: 6px; border-radius: 3px; overflow: hidden;">
                         <div style="background: #667eea; width: ${percentage}%; height: 100%;"></div>
                     </div>
@@ -987,11 +1027,9 @@ window.showStudentDetails = async function(studentId) {
         
         const studentData = studentDoc.data();
         const ratings = progressDoc.exists() ? (progressDoc.data().ratings || {}) : {};
-        
+
         // Fortschritt berechnen
-        const totalPossible = competencies.length * 5;
-        const currentTotal = Object.values(ratings).reduce((sum, rating) => sum + rating, 0);
-        const progress = totalPossible > 0 ? Math.round((currentTotal / totalPossible) * 100) : 0;
+        const progress = calculateProgress(ratings);
         
         // Alle Klassen für Dropdown laden
         const classesSnapshot = await getDocs(collection(window.db, 'classes'));
@@ -1003,6 +1041,7 @@ window.showStudentDetails = async function(studentId) {
         
         // Modal erstellen
         const modal = document.createElement('div');
+        modal.id = 'studentModal';
         modal.style.cssText = `
             position: fixed;
             top: 0;
@@ -1026,16 +1065,16 @@ window.showStudentDetails = async function(studentId) {
         let competenciesHTML = '';
         competencies.forEach(comp => {
             const rating = ratings[comp.id] || 0;
-            const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-            const percentage = (rating / 5) * 100;
-            
+            const stars = '★'.repeat(rating) + '☆'.repeat(MAX_RATING - rating);
+            const percentage = (rating / MAX_RATING) * 100;
+
             competenciesHTML += `
                 <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #f0f0f0;">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                        <span style="font-weight: 500; font-size: 14px;">${comp.name}</span>
+                        <span style="font-weight: 500; font-size: 14px;">${escapeHTML(comp.name)}</span>
                         <span style="color: #f6ad55; font-size: 16px;">${stars}</span>
                     </div>
-                    <div style="font-size: 12px; color: #888; margin-bottom: 8px;">${comp.description}</div>
+                    <div style="font-size: 12px; color: #888; margin-bottom: 8px;">${escapeHTML(comp.description)}</div>
                     <div style="background: #e2e8f0; height: 6px; border-radius: 3px; overflow: hidden;">
                         <div style="background: #667eea; width: ${percentage}%; height: 100%;"></div>
                     </div>
@@ -1048,10 +1087,10 @@ window.showStudentDetails = async function(studentId) {
                 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 16px 16px 0 0;">
                     <div style="display: flex; justify-content: space-between; align-items: start;">
                         <div>
-                            <h2 style="margin: 0; font-size: 24px;">👤 ${studentData.name}</h2>
-                            <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">${studentData.email}</p>
+                            <h2 style="margin: 0; font-size: 24px;">👤 ${escapeHTML(studentData.name)}</h2>
+                            <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">${escapeHTML(studentData.email)}</p>
                         </div>
-                        <button onclick="this.closest('div[style*=fixed]').remove()" 
+                        <button onclick="document.getElementById('studentModal').remove()"
                                 style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 18px;">
                             ✕
                         </button>
@@ -1111,28 +1150,31 @@ window.showStudentDetails = async function(studentId) {
 window.saveStudentChanges = async function(studentId) {
     const newName = document.getElementById('editStudentName').value;
     const newClass = document.getElementById('editStudentClass').value;
-    
+
     if (!newName || !newName.trim()) {
         showNotification('Name darf nicht leer sein!', 'error');
         return;
     }
-    
+
     showLoading(true);
-    
+
     try {
         await updateDoc(doc(window.db, 'users', studentId), {
             name: newName.trim(),
             class: newClass
         });
-        
+
         showNotification('Schüler erfolgreich aktualisiert!', 'success');
-        
-        // Modal schließen
-        document.querySelector('div[style*="position: fixed"]').remove();
-        
+
+        // Modal sicher schließen (mit ID oder data-Attribut)
+        const modal = document.getElementById('studentModal');
+        if (modal) {
+            modal.remove();
+        }
+
         // Schülerliste neu laden
         setupRealtimeStudentUpdates();
-        
+
     } catch (error) {
         console.error('Fehler beim Speichern:', error);
         showNotification('Fehler beim Speichern: ' + error.message, 'error');
@@ -1340,29 +1382,31 @@ function setupRealtimeStudentUpdates() {
 async function updateStudentsList(students) {
     const container = document.getElementById('studentsList');
     if (!container) return;
-    
+
     container.innerHTML = '';
-    
+
     for (const student of students) {
         // Fortschritt abrufen
         const progressDoc = await getDoc(doc(window.db, 'progress', student.id));
         let progress = 0;
-        
+
         if (progressDoc.exists()) {
             const ratings = progressDoc.data().ratings || {};
-            const totalPossible = competencies.length * 5;
-            const currentTotal = Object.values(ratings).reduce((sum, rating) => sum + rating, 0);
-            progress = totalPossible > 0 ? Math.round((currentTotal / totalPossible) * 100) : 0;
+            progress = calculateProgress(ratings);
         }
-        
+
         const card = document.createElement('div');
         card.className = 'student-card';
         card.style.cursor = 'pointer';
         card.onclick = () => showStudentDetails(student.id);
-        
+
+        // HTML escaping für Sicherheit
+        const escapedName = escapeHTML(student.name);
+        const escapedClass = escapeHTML(student.class || 'Keine');
+
         card.innerHTML = `
-            <div class="student-name">${student.name}</div>
-            <div class="student-info">Klasse: ${student.class || 'Keine'}</div>
+            <div class="student-name">${escapedName}</div>
+            <div class="student-info">Klasse: ${escapedClass}</div>
             <div class="student-info">Fortschritt: ${progress}%</div>
             <div class="student-progress">
                 <div class="mini-progress-bar">
@@ -1370,26 +1414,86 @@ async function updateStudentsList(students) {
                 </div>
             </div>
         `;
-        
+
         container.appendChild(card);
     }
 }
 
+// Schüler filtern (für Suchfeld)
+window.filterStudents = function() {
+    const searchTerm = document.getElementById('studentSearch')?.value.toLowerCase() || '';
+    const classFilter = document.getElementById('classFilter')?.value || '';
+
+    const allCards = document.querySelectorAll('.student-card');
+
+    allCards.forEach(card => {
+        const name = card.querySelector('.student-name')?.textContent.toLowerCase() || '';
+        const classInfo = card.querySelector('.student-info')?.textContent || '';
+
+        const matchesSearch = name.includes(searchTerm);
+        const matchesClass = !classFilter || classInfo.includes(classFilter);
+
+        if (matchesSearch && matchesClass) {
+            card.style.display = '';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+};
+
+// Schülerliste manuell aktualisieren
+window.refreshStudentList = function() {
+    showNotification('Aktualisiere Schülerliste...', 'info');
+    setupRealtimeStudentUpdates();
+};
+
 // ============= UI HELFER =============
 
+// HTML Escaping für XSS-Schutz
+function escapeHTML(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// Email-Validierung
+function isValidEmail(email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+}
+
+// Fortschritt berechnen (wiederverwendbare Funktion)
+function calculateProgress(ratings) {
+    if (!competencies.length) return 0;
+    const totalPossible = competencies.length * MAX_RATING;
+    const currentTotal = Object.values(ratings || {}).reduce((sum, rating) => sum + rating, 0);
+    return totalPossible > 0 ? Math.round((currentTotal / totalPossible) * 100) : 0;
+}
+
 // Tab wechseln
-window.switchTab = function(tabId) {
+window.switchTab = function(tabId, event) {
     document.querySelectorAll('.tab-content').forEach(tab => {
         tab.classList.add('hidden');
     });
-    
+
     document.querySelectorAll('.tab-button').forEach(btn => {
         btn.classList.remove('active');
     });
-    
+
     document.getElementById(tabId).classList.remove('hidden');
-    event.target.classList.add('active');
-    
+
+    // Event kann undefined sein, wenn direkt aufgerufen
+    if (event && event.target) {
+        event.target.classList.add('active');
+    } else {
+        // Fallback: Button anhand tabId finden
+        const targetButton = document.querySelector(`button[onclick*="${tabId}"]`);
+        if (targetButton) {
+            targetButton.classList.add('active');
+        }
+    }
+
     // Daten für den jeweiligen Tab laden
     if (tabId === 'classes-tab') {
         loadClassesManager();
@@ -1435,7 +1539,7 @@ function showLoginArea() {
 // Sterne erstellen
 function createStars(competencyId, currentRating) {
     let starsHTML = '';
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= MAX_RATING; i++) {
         const filled = i <= currentRating ? 'filled' : '';
         starsHTML += `<span class="star ${filled}" data-rating="${i}">★</span>`;
     }

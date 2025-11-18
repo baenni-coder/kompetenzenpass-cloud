@@ -15,7 +15,7 @@
         
         const firebaseConfig = {
   apiKey: "AIzaSyBfXZSQ5SPrJ-cNRRuggTSiTV_UBt14g9s",
-  authDomain: "https://baenni-coder.github.io/",
+  authDomain: "kompetenzpass.firebaseapp.com",
   projectId: "kompetenzpass",
   storageBucket: "kompetenzpass.firebasestorage.app",
   messagingSenderId: "46794299225",
@@ -126,16 +126,16 @@
 
             <!-- Tab Navigation -->
             <div class="tab-navigation">
-                <button class="tab-button active" onclick="switchTab('competencies-tab')">
+                <button class="tab-button active" onclick="switchTab('competencies-tab', event)">
                     📚 Kompetenzen
                 </button>
-                <button class="tab-button" onclick="switchTab('students-tab')">
+                <button class="tab-button" onclick="switchTab('students-tab', event)">
                     👥 Schüler
                 </button>
-                <button class="tab-button" onclick="switchTab('classes-tab')">
+                <button class="tab-button" onclick="switchTab('classes-tab', event)">
                     🏫 Klassen
                 </button>
-                <button class="tab-button" onclick="switchTab('reports-tab')">
+                <button class="tab-button" onclick="switchTab('reports-tab', event)">
                     📊 Berichte
                 </button>
             </div>
