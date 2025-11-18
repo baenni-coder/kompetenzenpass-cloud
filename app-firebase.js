@@ -847,6 +847,10 @@ function generateDetailedReport(className, students, container) {
                     <h2 style="margin: 0; color: #667eea;">📋 Detaillierter Bericht: ${className}</h2>
                     <p style="color: #888; margin: 5px 0 0 0;">Alle Kompetenzen pro Schüler</p>
                 </div>
+                <button onclick="exportReportAsPDF('${className}')"
+                        style="background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px;">
+                    📄 Als PDF exportieren
+                </button>
             </div>
     `;
     
@@ -904,9 +908,66 @@ function generateProgressReport(className, students, container) {
     `;
 }
 
-// PDF Export Placeholder
-window.exportReportAsPDF = function(className) {
-    showNotification('PDF-Export für Berichte kommt bald!', 'info');
+// PDF Export für Berichte
+window.exportReportAsPDF = async function(className) {
+    try {
+        const reportContainer = document.getElementById('reportContainer');
+        const reportType = document.getElementById('reportType').value;
+
+        if (!reportContainer || !reportContainer.innerHTML.trim()) {
+            showNotification('Bitte erstelle zuerst einen Bericht!', 'error');
+            return;
+        }
+
+        showNotification('PDF wird erstellt...', 'info');
+
+        // Berichtstyp-Namen für Datei
+        const reportTypeNames = {
+            'overview': 'Uebersicht',
+            'detailed': 'Detailliert',
+            'progress': 'Fortschritt'
+        };
+        const typeName = reportTypeNames[reportType] || 'Bericht';
+
+        // Aktuelles Datum für Dateinamen
+        const date = new Date().toISOString().split('T')[0];
+        const fileName = `Bericht_${typeName}_${className}_${date}.pdf`;
+
+        // Klone den Container für PDF-Export (um Original nicht zu ändern)
+        const clone = reportContainer.cloneNode(true);
+
+        // Entferne den Export-Button aus dem Clone
+        const exportButton = clone.querySelector('button[onclick*="exportReportAsPDF"]');
+        if (exportButton) {
+            exportButton.remove();
+        }
+
+        // PDF-Optionen
+        const opt = {
+            margin: [10, 10, 10, 10],
+            filename: fileName,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: {
+                scale: 2,
+                useCORS: true,
+                letterRendering: true
+            },
+            jsPDF: {
+                unit: 'mm',
+                format: 'a4',
+                orientation: 'portrait'
+            },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+        };
+
+        // PDF generieren und herunterladen
+        await html2pdf().set(opt).from(clone).save();
+
+        showNotification('PDF erfolgreich erstellt!', 'success');
+    } catch (error) {
+        console.error('Fehler beim PDF-Export:', error);
+        showNotification('Fehler beim PDF-Export: ' + error.message, 'error');
+    }
 };
 
 // ============= DETAILLIERTE SCHÜLER-ANSICHT =============
