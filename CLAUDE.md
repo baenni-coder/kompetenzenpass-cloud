@@ -1,6 +1,6 @@
 # CLAUDE.md - Digitaler Kompetenzpass (Cloud Version)
 
-**Last Updated:** 2025-11-18
+**Last Updated:** 2025-11-28
 **Repository:** baenni-coder/kompetenzenpass-cloud
 **Language:** German (UI and comments)
 
@@ -37,13 +37,17 @@ This is a cloud-based digital competency tracking system (Kompetenzpass) for edu
 
 ```
 kompetenzenpass-cloud/
-├── index.html          # Main app structure & Firebase initialization
-├── app-firebase.js     # Core application logic (58KB)
-├── style.css           # All styling and animations
-└── README.md           # Minimal project description
+├── index.html                    # Main app structure & Firebase initialization
+├── app-firebase.js               # Core application logic (~90KB)
+├── style.css                     # All styling and animations (~14KB)
+├── import-competencies.html      # Tool to import curriculum competencies
+├── Kompetenzen-Lehrplan.csv      # Curriculum data (87 competency levels)
+├── parse-csv.js                  # CSV parser utility
+├── CLAUDE.md                     # This file - comprehensive documentation
+└── README.md                     # Minimal project description
 ```
 
-**Simple Architecture:** All code is in 3 main files with no subdirectories.
+**Simple Architecture:** Core app in 3 files, plus import tool and curriculum data.
 
 ## Firebase Configuration
 
@@ -64,21 +68,10 @@ kompetenzenpass-cloud/
 #### `progress` Collection
 ```javascript
 {
-  ratings: {              // Object mapping competency IDs to ratings
-    [competencyId]: number  // Rating value 0-5 stars
+  ratings: {              // Object mapping competency level IDs to ratings
+    [levelId]: number     // Rating value 0-5 stars (e.g., "IB-1-1-a": 4)
   },
   lastUpdated: timestamp  // Last modification time
-}
-```
-
-#### `competencies` Collection
-```javascript
-{
-  name: string,           // Competency name with emoji (e.g., "👨‍💻 Programmieren")
-  description: string,    // Short description
-  order: number,          // Display order
-  createdBy: string,      // UID of teacher who created it
-  createdAt: timestamp    // Creation time
 }
 ```
 
@@ -87,8 +80,56 @@ kompetenzenpass-cloud/
 {
   name: string,           // Class name (e.g., "7a", "8b")
   description: string,    // Optional description (e.g., "Schuljahr 2024/25")
+  grade: string,          // Grade level (e.g., "7", "8", "KiGa", "1./2.", "3./4.")
   createdBy: string,      // UID of teacher who created it
   createdAt: timestamp    // Creation time
+}
+```
+
+#### `competencyAreas` Collection (NEW - Hierarchical Structure)
+```javascript
+{
+  id: string,             // Area ID (e.g., "medien", "informatik")
+  name: string,           // Area name (e.g., "Medien", "Informatik")
+  emoji: string,          // Icon emoji (e.g., "📱", "💻")
+  order: number           // Display order
+}
+```
+
+#### `competencies` Collection (Updated - Hierarchical Structure)
+```javascript
+{
+  id: string,             // Competency ID (e.g., "IB-1-1")
+  areaId: string,         // Reference to competencyArea (e.g., "medien")
+  name: string,           // Full competency description
+  lpCodePrefix: string,   // LP code prefix (e.g., "IB.1.1")
+  order: number           // Display order
+}
+```
+
+#### `competencyLevels` Collection (NEW - Hierarchical Structure)
+```javascript
+{
+  id: string,                    // Level ID (LP code with dashes, e.g., "IB-1-1-a")
+  competencyId: string,          // Reference to parent competency (e.g., "IB-1-1")
+  lpCode: string,                // Full LP code (e.g., "IB.1.1.a")
+  description: string,           // Detailed level description
+  cycles: array<string>,         // Cycles (e.g., ["Zyklus 1", "Zyklus 2"])
+  grades: array<string>,         // Grade levels (e.g., ["KiGa", "1./2."])
+  isBasicRequirement: boolean,   // Is this a "Grundanspruch"?
+  order: number                  // Display order within competency
+}
+```
+
+#### `artifacts` Collection (File Uploads)
+```javascript
+{
+  userId: string,         // Student UID who uploaded
+  competencyId: string,   // Associated competency level ID
+  fileName: string,       // Original file name
+  fileUrl: string,        // Firebase Storage URL
+  fileType: string,       // MIME type
+  uploadedAt: timestamp   // Upload time
 }
 ```
 
@@ -96,11 +137,64 @@ kompetenzenpass-cloud/
 
 ⚠️ **Important:** The Firebase config (including API key) is exposed in `index.html:16-24`. This is typical for client-side Firebase apps, but security rules in Firestore are critical.
 
-**Expected Firestore Rules Pattern:**
+**Required Firestore Rules:**
 - Students can read/write their own progress documents
-- Students can read all competencies
-- Teachers have broader read/write access
+- Students can read all competencies, areas, and levels
+- Teachers can read all documents
+- Teachers can write to: users, classes, competencyAreas, competencies, competencyLevels
 - Authentication required for all operations
+- See Firebase Console for complete rules implementation
+
+## Hierarchical Competency Structure
+
+**NEW Feature (2025-11-28):** The app now uses a three-level hierarchy based on the Swiss "Lehrplan Informatik & Medien":
+
+### Structure Overview
+
+```
+📱 Competency Area (Kompetenzbereich)
+  └── 📚 Competency Group (Kompetenz)
+       └── ⭐ Competency Level (Kompetenzstufe)
+            ├── LP Code (e.g., IB.1.1.a)
+            ├── Description
+            ├── Cycles (Zyklus 1-3)
+            ├── Grade Levels (KiGa, 1./2., 3./4., 5./6., 7., 8., 9.)
+            └── Basic Requirement Flag
+```
+
+### Three Competency Areas
+
+1. **📱 Medien** - Media competencies
+2. **💻 Informatik** - Computer science competencies
+3. **🎯 Anwendungskompetenzen** - Application competencies
+
+### Grade-Level Filtering
+
+**How it works:**
+1. Teachers assign a `grade` (e.g., "7", "8", "3./4.") when creating/editing a class
+2. Students are assigned to a class (e.g., "7a")
+3. App looks up the class's grade level in Firestore
+4. Only competency levels matching that grade are displayed to students
+5. Teachers see all competency levels (no filtering)
+
+**Example:**
+- Class "7a" has grade "7"
+- Student in "7a" sees only competency levels with `grades` array containing "7" or "7./8."
+- Flexible matching handles various formats
+
+### Import Process
+
+**Initial Setup:**
+1. Open `import-competencies.html`
+2. Login as teacher
+3. Click "Import starten"
+4. Tool imports 87 competency levels from `Kompetenzen-Lehrplan.csv`
+5. Creates:
+   - 3 competency areas
+   - ~10 competency groups
+   - 86-87 competency levels
+
+**Data Source:** Official curriculum from Lehrplan Informatik & Medien
 
 ## Code Architecture
 
