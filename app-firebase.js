@@ -361,8 +361,24 @@ async function showStudentArea(userData) {
     document.getElementById('welcomeMessage').innerHTML =
         `Hallo <strong>${escapeHTML(userData.name)}</strong>! Klasse: ${escapeHTML(userData.class)}`;
 
+    // Klassenstufe aus der Klasse ermitteln
+    let gradeFilter = null;
+    try {
+        const classesSnapshot = await getDocs(collection(window.db, 'classes'));
+        const studentClass = classesSnapshot.docs.find(doc => doc.data().name === userData.class);
+
+        if (studentClass && studentClass.data().grade) {
+            gradeFilter = studentClass.data().grade;
+            console.log(`Klassenstufe für Filter: ${gradeFilter}`);
+        } else {
+            console.warn(`Keine Klassenstufe für Klasse "${userData.class}" gefunden. Zeige alle Kompetenzen.`);
+        }
+    } catch (error) {
+        console.error('Fehler beim Laden der Klassenstufe:', error);
+    }
+
     // Kompetenzen nach Klassenstufe filtern
-    await loadCompetencies(userData.class);
+    await loadCompetencies(gradeFilter);
 
     // Fortschritt laden und Echtzeit-Updates einrichten
     const progressRef = doc(window.db, 'progress', currentUser.uid);
@@ -697,6 +713,7 @@ async function loadClassesManager() {
                     <div style="flex: 1;">
                         <h3 style="margin: 0 0 10px 0; font-size: 24px; color: #667eea;">
                             🏫 ${classData.name}
+                            ${classData.grade ? `<span style="background: #f0f4ff; color: #667eea; padding: 4px 10px; border-radius: 5px; font-size: 14px; margin-left: 10px;">Stufe ${escapeHTML(classData.grade)}</span>` : ''}
                         </h3>
                         <p style="color: #666; margin: 5px 0;">
                             ${classData.description || 'Keine Beschreibung'}
@@ -757,19 +774,26 @@ async function loadClassesManager() {
 window.createClass = async function() {
     const name = prompt('Klassenname (z.B. "7a", "8b"):');
     if (!name || !name.trim()) return;
-    
+
     const description = prompt('Beschreibung (z.B. "Schuljahr 2024/25"):') || '';
-    
+
+    const grade = prompt('Klassenstufe (z.B. "7", "8", "KiGa", "1./2.", "3./4.", "5./6.", "7./8.", "9"):');
+    if (!grade || !grade.trim()) {
+        showNotification('Klassenstufe ist erforderlich!', 'error');
+        return;
+    }
+
     showLoading(true);
-    
+
     try {
         await setDoc(doc(collection(window.db, 'classes')), {
             name: name.trim(),
             description: description.trim(),
+            grade: grade.trim(),
             createdBy: currentUser.uid,
             createdAt: serverTimestamp()
         });
-        
+
         showNotification('Klasse erfolgreich erstellt!', 'success');
         await loadClassesManager();
     } catch (error) {
@@ -784,32 +808,41 @@ window.createClass = async function() {
 window.editClass = async function(classId) {
     try {
         const classDoc = await getDoc(doc(window.db, 'classes', classId));
-        
+
         if (!classDoc.exists()) {
             showNotification('Klasse nicht gefunden!', 'error');
             return;
         }
-        
+
         const data = classDoc.data();
-        
+
         const newName = prompt('Neuer Klassenname:', data.name);
         if (newName === null) return;
-        
+
         const newDescription = prompt('Neue Beschreibung:', data.description || '');
         if (newDescription === null) return;
-        
+
+        const newGrade = prompt('Neue Klassenstufe (z.B. "7", "8", "KiGa", "1./2.", "3./4.", "5./6.", "7./8.", "9"):', data.grade || '');
+        if (newGrade === null) return;
+
         if (!newName.trim()) {
             showNotification('Name darf nicht leer sein!', 'error');
             return;
         }
-        
+
+        if (!newGrade.trim()) {
+            showNotification('Klassenstufe darf nicht leer sein!', 'error');
+            return;
+        }
+
         showLoading(true);
-        
+
         await updateDoc(doc(window.db, 'classes', classId), {
             name: newName.trim(),
-            description: newDescription.trim()
+            description: newDescription.trim(),
+            grade: newGrade.trim()
         });
-        
+
         showNotification('Klasse erfolgreich aktualisiert!', 'success');
         await loadClassesManager();
     } catch (error) {
@@ -1561,20 +1594,29 @@ window.editCompetency = async function(competencyId) {
 };
 
 // Echtzeit-Updates für Schülerdaten
+// Globale Variable für Student-Listener (um Duplikate zu vermeiden)
+let studentListenerUnsubscribe = null;
+
 function setupRealtimeStudentUpdates() {
+    // Vorherigen Listener entfernen, falls vorhanden
+    if (studentListenerUnsubscribe) {
+        studentListenerUnsubscribe();
+        studentListenerUnsubscribe = null;
+    }
+
     // Schüler in Echtzeit überwachen
     const q = query(collection(window.db, 'users'), where('role', '==', 'student'));
-    
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+
+    studentListenerUnsubscribe = onSnapshot(q, (querySnapshot) => {
         const students = [];
         querySnapshot.forEach((doc) => {
             students.push({ id: doc.id, ...doc.data() });
         });
-        
+
         updateStudentsList(students);
     });
-    
-    unsubscribeListeners.push(unsubscribe);
+
+    unsubscribeListeners.push(studentListenerUnsubscribe);
 }
 
 // Schülerliste aktualisieren
