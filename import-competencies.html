@@ -176,17 +176,69 @@
         <h1>🚀 Kompetenzen Import</h1>
         <p class="subtitle">Importiere Lehrplan-Kompetenzen in Firestore</p>
 
-        <div class="info-box">
-            <strong>ℹ️ Info:</strong> Dieses Tool importiert 87 Kompetenzstufen aus der CSV-Datei in drei hierarchische Firestore-Collections:
-            <ul style="margin-top: 10px; margin-left: 20px;">
-                <li><strong>competencyAreas</strong> - 3 Kompetenzbereiche</li>
-                <li><strong>competencies</strong> - Übergeordnete Kompetenzen</li>
-                <li><strong>competencyLevels</strong> - Konkrete Kompetenzstufen</li>
-            </ul>
+        <!-- Login-Bereich -->
+        <div id="loginSection">
+            <div class="info-box">
+                <strong>🔐 Authentifizierung erforderlich:</strong> Bitte melde dich als Lehrer an, um den Import durchzuführen.
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Lehrer E-Mail:</label>
+                <input type="email" id="teacherEmail" placeholder="lehrer@schule.ch"
+                    style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 14px;"
+                    onkeypress="if(event.key==='Enter') loginTeacher()">
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Passwort:</label>
+                <input type="password" id="teacherPassword" placeholder="••••••"
+                    style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 14px;"
+                    onkeypress="if(event.key==='Enter') loginTeacher()">
+            </div>
+
+            <button class="btn" id="loginBtn" onclick="loginTeacher()">
+                🔓 Als Lehrer anmelden
+            </button>
         </div>
 
-        <div class="warning-box">
-            <strong>⚠️ Warnung:</strong> Dieser Import löscht alle bestehenden Kompetenzen! Dieser Vorgang kann nicht rückgängig gemacht werden.
+        <!-- Import-Bereich (hidden bis Login) -->
+        <div id="importSection" style="display: none;">
+            <div class="success-box" style="display: block;">
+                <strong>✅ Angemeldet als:</strong> <span id="loggedInUser"></span>
+            </div>
+
+            <div class="info-box">
+                <strong>ℹ️ Info:</strong> Dieses Tool importiert 87 Kompetenzstufen aus der CSV-Datei in drei hierarchische Firestore-Collections:
+                <ul style="margin-top: 10px; margin-left: 20px;">
+                    <li><strong>competencyAreas</strong> - 3 Kompetenzbereiche</li>
+                    <li><strong>competencies</strong> - Übergeordnete Kompetenzen</li>
+                    <li><strong>competencyLevels</strong> - Konkrete Kompetenzstufen</li>
+                </ul>
+            </div>
+
+            <div class="warning-box">
+                <strong>⚠️ Warnung:</strong> Dieser Import löscht alle bestehenden Kompetenzen! Dieser Vorgang kann nicht rückgängig gemacht werden.
+            </div>
+        </div>
+
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-number" id="statAreas">0</div>
+                    <div class="stat-label">Bereiche</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="statCompetencies">0</div>
+                    <div class="stat-label">Kompetenzen</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="statLevels">0</div>
+                    <div class="stat-label">Stufen</div>
+                </div>
+            </div>
+
+            <button class="btn" id="importBtn" onclick="startImport()">
+                Import starten
+            </button>
         </div>
 
         <div class="success-box" id="successBox">
@@ -196,25 +248,6 @@
         <div class="error-box" id="errorBox">
             <strong>❌ Fehler!</strong> <span id="errorMessage"></span>
         </div>
-
-        <div class="stats">
-            <div class="stat-card">
-                <div class="stat-number" id="statAreas">0</div>
-                <div class="stat-label">Bereiche</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number" id="statCompetencies">0</div>
-                <div class="stat-label">Kompetenzen</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number" id="statLevels">0</div>
-                <div class="stat-label">Stufen</div>
-            </div>
-        </div>
-
-        <button class="btn" id="importBtn" onclick="startImport()">
-            Import starten
-        </button>
 
         <div class="progress" id="progressContainer">
             <div class="progress-bar">
@@ -228,7 +261,8 @@
 
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getFirestore, collection, doc, setDoc, deleteDoc, getDocs, writeBatch } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getAuth, signInWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, writeBatch } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
         // Firebase-Konfiguration (gleich wie in index.html)
         const firebaseConfig = {
@@ -242,8 +276,11 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        const auth = getAuth(app);
 
         window.db = db;
+        window.auth = auth;
+        let currentUser = null;
 
         // Logging-Funktion
         function log(message, type = 'info') {
@@ -463,8 +500,64 @@
             updateProgress(100, 'Import abgeschlossen!');
         }
 
+        // Login-Funktion
+        window.loginTeacher = async function() {
+            const email = document.getElementById('teacherEmail').value;
+            const password = document.getElementById('teacherPassword').value;
+            const loginBtn = document.getElementById('loginBtn');
+
+            if (!email || !password) {
+                showError('Bitte E-Mail und Passwort eingeben!');
+                return;
+            }
+
+            loginBtn.disabled = true;
+            loginBtn.textContent = 'Anmelden...';
+
+            try {
+                // Anmelden
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                currentUser = userCredential.user;
+
+                // Prüfen ob Lehrer
+                const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+                if (!userDoc.exists() || userDoc.data().role !== 'teacher') {
+                    await auth.signOut();
+                    currentUser = null;
+                    showError('Nur Lehrer können den Import durchführen!');
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = '🔓 Als Lehrer anmelden';
+                    return;
+                }
+
+                // Login erfolgreich
+                const userData = userDoc.data();
+                document.getElementById('loggedInUser').textContent = userData.name || email;
+                document.getElementById('loginSection').style.display = 'none';
+                document.getElementById('importSection').style.display = 'block';
+
+            } catch (error) {
+                console.error('Login-Fehler:', error);
+                let errorMsg = 'Login fehlgeschlagen!';
+                if (error.code === 'auth/invalid-credential') {
+                    errorMsg = 'E-Mail oder Passwort ungültig!';
+                } else if (error.code === 'auth/user-not-found') {
+                    errorMsg = 'Benutzer nicht gefunden!';
+                } else if (error.code === 'auth/wrong-password') {
+                    errorMsg = 'Falsches Passwort!';
+                }
+                showError(errorMsg);
+                loginBtn.disabled = false;
+                loginBtn.textContent = '🔓 Als Lehrer anmelden';
+            }
+        };
+
         // Haupt-Import-Funktion
         window.startImport = async function() {
+            if (!currentUser) {
+                showError('Bitte zuerst anmelden!');
+                return;
+            }
             const btn = document.getElementById('importBtn');
             btn.disabled = true;
             btn.textContent = 'Import läuft...';
