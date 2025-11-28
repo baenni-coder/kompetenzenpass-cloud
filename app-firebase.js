@@ -33,7 +33,10 @@ import {
 // ============= GLOBALE VARIABLEN =============
 let currentUser = null;
 let userRole = null; // 'student' oder 'teacher'
-let competencies = [];
+let competencies = []; // Wird durch competencyLevels ersetzt
+let competencyAreas = []; // Kompetenzbereiche (Medien, Informatik, Anwendungen)
+let competencyGroups = []; // Kompetenz-Gruppen (übergeordnet)
+let competencyLevels = []; // Konkrete Kompetenzstufen
 let unsubscribeListeners = [];
 
 // ============= KONSTANTEN =============
@@ -265,26 +268,68 @@ async function loadUserData() {
 }
 
 // ============= KOMPETENZEN MANAGEMENT =============
-async function loadCompetencies() {
+async function loadCompetencies(gradeFilter = null) {
     try {
-        const querySnapshot = await getDocs(collection(window.db, 'competencies'));
-        
-        if (querySnapshot.empty) {
-            // Wenn keine Kompetenzen existieren, Standard-Kompetenzen erstellen
-            await createDefaultCompetencies();
-            await loadCompetencies(); // Neu laden
-            return;
-        }
-        
-        competencies = [];
-        querySnapshot.forEach((doc) => {
-            competencies.push({ id: doc.id, ...doc.data() });
+        // Kompetenzbereiche laden
+        const areasSnapshot = await getDocs(collection(window.db, 'competencyAreas'));
+        competencyAreas = [];
+        areasSnapshot.forEach((doc) => {
+            competencyAreas.push({ id: doc.id, ...doc.data() });
         });
-        
-        competencies.sort((a, b) => (a.order || 0) - (b.order || 0));
+        competencyAreas.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+        // Kompetenz-Gruppen laden (übergeordnete Kompetenzen)
+        const groupsSnapshot = await getDocs(collection(window.db, 'competencies'));
+        competencyGroups = [];
+        groupsSnapshot.forEach((doc) => {
+            competencyGroups.push({ id: doc.id, ...doc.data() });
+        });
+        competencyGroups.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+        // Kompetenzstufen laden
+        let levelsQuery = collection(window.db, 'competencyLevels');
+        const levelsSnapshot = await getDocs(levelsQuery);
+        competencyLevels = [];
+
+        levelsSnapshot.forEach((doc) => {
+            const level = { id: doc.id, ...doc.data() };
+
+            // Optional: Nach Klassenstufe filtern
+            if (gradeFilter) {
+                if (level.grades && level.grades.some(g => matchGrade(g, gradeFilter))) {
+                    competencyLevels.push(level);
+                }
+            } else {
+                competencyLevels.push(level);
+            }
+        });
+
+        competencyLevels.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+        // Legacy: competencies Array mit Levels befüllen (für Rückwärtskompatibilität)
+        competencies = competencyLevels;
+
+        console.log(`Geladen: ${competencyAreas.length} Bereiche, ${competencyGroups.length} Gruppen, ${competencyLevels.length} Stufen`);
+
+        // Wenn keine Daten vorhanden, Hinweis anzeigen
+        if (competencyAreas.length === 0 && competencyLevels.length === 0) {
+            console.warn('Keine Kompetenzen gefunden. Bitte Import-Tool verwenden.');
+        }
     } catch (error) {
         console.error('Fehler beim Laden der Kompetenzen:', error);
     }
+}
+
+// Hilfsfunktion: Prüft ob eine Klassenstufe zum Filter passt
+function matchGrade(grade, filter) {
+    // Exakte Übereinstimmung
+    if (grade === filter) return true;
+
+    // Flexibles Matching (z.B. "7" passt zu "7.", "7./8.", etc.)
+    const normalized = grade.replace(/[./]/g, '');
+    const filterNormalized = filter.replace(/[./]/g, '');
+
+    return normalized.includes(filterNormalized) || filterNormalized.includes(normalized);
 }
 
 // Standard-Kompetenzen erstellen
@@ -312,13 +357,16 @@ async function showStudentArea(userData) {
     document.getElementById('loginArea').classList.add('hidden');
     document.getElementById('teacherArea').classList.add('hidden');
     document.getElementById('mainArea').classList.remove('hidden');
-    
+
     document.getElementById('welcomeMessage').innerHTML =
         `Hallo <strong>${escapeHTML(userData.name)}</strong>! Klasse: ${escapeHTML(userData.class)}`;
-    
+
+    // Kompetenzen nach Klassenstufe filtern
+    await loadCompetencies(userData.class);
+
     // Fortschritt laden und Echtzeit-Updates einrichten
     const progressRef = doc(window.db, 'progress', currentUser.uid);
-    
+
     const unsubscribe = onSnapshot(progressRef, (doc) => {
         if (doc.exists()) {
             const progress = doc.data();
@@ -327,11 +375,11 @@ async function showStudentArea(userData) {
             renderStudentCompetencies({});
         }
     });
-    
+
     unsubscribeListeners.push(unsubscribe);
 }
 
-// Kompetenzen für Schüler rendern
+// Kompetenzen für Schüler rendern (hierarchisch)
 async function renderStudentCompetencies(ratings) {
     const container = document.getElementById('competencies');
     container.innerHTML = '';
@@ -351,41 +399,116 @@ async function renderStudentCompetencies(ratings) {
     `;
     container.appendChild(overallDiv);
 
-    // Einzelne Kompetenzen
-    for (const comp of competencies) {
-        const rating = ratings[comp.id] || 0;
+    // Hierarchisch nach Bereichen gruppieren
+    for (const area of competencyAreas) {
+        const areaDiv = document.createElement('div');
+        areaDiv.className = 'competency-area';
 
-        // Artefakte für diese Kompetenz zählen
-        const artifacts = await loadArtifacts(comp.id);
-        const artifactCount = artifacts.length;
+        const areaHeader = document.createElement('h2');
+        areaHeader.className = 'area-header';
+        areaHeader.innerHTML = `${area.emoji} ${escapeHTML(area.name)}`;
+        areaDiv.appendChild(areaHeader);
 
-        const card = document.createElement('div');
-        card.className = 'competency-card';
+        // Alle Levels für diesen Bereich
+        const levelsInArea = competencyLevels.filter(level => {
+            const group = competencyGroups.find(g => g.id === level.competencyId);
+            return group && group.areaId === area.id;
+        });
 
-        card.innerHTML = `
-            <div class="competency-header">
-                <div class="competency-info">
-                    <div class="competency-title">
-                        ${escapeHTML(comp.name)}
-                        ${artifactCount > 0 ? `<span class="artifact-badge">${artifactCount} 📎</span>` : ''}
+        // Nach Gruppen zusammenfassen
+        const groupedLevels = new Map();
+        for (const level of levelsInArea) {
+            if (!groupedLevels.has(level.competencyId)) {
+                groupedLevels.set(level.competencyId, []);
+            }
+            groupedLevels.get(level.competencyId).push(level);
+        }
+
+        // Für jede Gruppe einen Abschnitt erstellen
+        for (const [groupId, levels] of groupedLevels) {
+            const group = competencyGroups.find(g => g.id === groupId);
+            if (!group) continue;
+
+            // Gruppen-Container
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'competency-group';
+
+            // Gruppen-Titel (collapsible)
+            const groupTitle = document.createElement('div');
+            groupTitle.className = 'group-title';
+            groupTitle.innerHTML = `
+                <span class="group-toggle">▼</span>
+                <span class="group-name">${escapeHTML(group.name)}</span>
+                <span class="group-code">${escapeHTML(group.lpCodePrefix)}</span>
+            `;
+            groupTitle.onclick = function() {
+                const levelsContainer = this.nextElementSibling;
+                const toggle = this.querySelector('.group-toggle');
+                if (levelsContainer.style.display === 'none') {
+                    levelsContainer.style.display = 'block';
+                    toggle.textContent = '▼';
+                } else {
+                    levelsContainer.style.display = 'none';
+                    toggle.textContent = '▶';
+                }
+            };
+            groupDiv.appendChild(groupTitle);
+
+            // Levels-Container
+            const levelsContainer = document.createElement('div');
+            levelsContainer.className = 'levels-container';
+
+            // Einzelne Kompetenzstufen
+            for (const level of levels) {
+                const rating = ratings[level.id] || 0;
+
+                // Artefakte für diese Kompetenz zählen
+                const artifacts = await loadArtifacts(level.id);
+                const artifactCount = artifacts.length;
+
+                const card = document.createElement('div');
+                card.className = 'competency-card';
+
+                const cycleText = level.cycles?.join(', ') || '';
+                const gradeText = level.grades?.join(', ') || '';
+                const basicReqBadge = level.isBasicRequirement ? '<span class="basic-req-badge">Grundanspruch</span>' : '';
+
+                card.innerHTML = `
+                    <div class="competency-header">
+                        <div class="competency-info">
+                            <div class="competency-title">
+                                <strong>${escapeHTML(level.lpCode)}</strong>
+                                ${basicReqBadge}
+                                ${artifactCount > 0 ? `<span class="artifact-badge">${artifactCount} 📎</span>` : ''}
+                            </div>
+                            <div class="competency-description">${escapeHTML(level.description)}</div>
+                            <div class="competency-meta">
+                                ${cycleText ? `<span class="meta-tag">📚 ${cycleText}</span>` : ''}
+                                ${gradeText ? `<span class="meta-tag">🎓 ${gradeText}</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="stars" data-competency="${escapeHTML(level.id)}">
+                            ${createStars(level.id, rating)}
+                        </div>
                     </div>
-                    <div class="competency-description">${escapeHTML(comp.description)}</div>
-                </div>
-                <div class="stars" data-competency="${escapeHTML(comp.id)}">
-                    ${createStars(comp.id, rating)}
-                </div>
-            </div>
-            <div class="progress-bar">
-                <div class="progress-fill" style="width: ${rating * 20}%"></div>
-            </div>
-            <div class="competency-actions">
-                <button class="btn-artifact" onclick="showArtifactsModal('${escapeHTML(comp.id)}', '${escapeHTML(comp.name)}')" title="Artefakte verwalten">
-                    📎 Artefakte (${artifactCount})
-                </button>
-            </div>
-        `;
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${rating * 20}%"></div>
+                    </div>
+                    <div class="competency-actions">
+                        <button class="btn-artifact" onclick="showArtifactsModal('${escapeHTML(level.id)}', '${escapeHTML(level.lpCode)}')" title="Artefakte verwalten">
+                            📎 Artefakte (${artifactCount})
+                        </button>
+                    </div>
+                `;
 
-        container.appendChild(card);
+                levelsContainer.appendChild(card);
+            }
+
+            groupDiv.appendChild(levelsContainer);
+            areaDiv.appendChild(groupDiv);
+        }
+
+        container.appendChild(areaDiv);
     }
 
     // Event Listener für Sterne
