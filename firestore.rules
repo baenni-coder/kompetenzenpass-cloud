@@ -7,30 +7,36 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
     function isStudent() {
-      return isAuthenticated() &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student';
+      return isAuthenticated() && getUserRole() == 'student';
     }
 
     function isTeacher() {
-      return isAuthenticated() &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
-    }
-
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return isAuthenticated() && getUserRole() == 'teacher';
     }
 
     // ============= BENUTZER =============
     match /users/{userId} {
       // Jeder authentifizierte Benutzer kann sein eigenes Profil lesen
-      allow read: if isOwner(userId);
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+
+      // Jeder authentifizierte Benutzer kann sein eigenes Profil erstellen
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+
+      // Jeder kann sein eigenes Profil aktualisieren (z.B. lastActive)
+      allow update: if isAuthenticated() && request.auth.uid == userId;
 
       // Lehrer können alle Benutzerprofile lesen und schreiben
-      allow read, write: if isTeacher();
-
-      // Neue Benutzer können sich selbst erstellen (bei Registrierung)
-      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow read, write: if isAuthenticated() &&
+                           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
     }
 
     // ============= KLASSEN =============
@@ -80,14 +86,11 @@ service cloud.firestore {
 
     // ============= FORTSCHRITT (BEWERTUNGEN) =============
     match /progress/{userId} {
-      // Schüler können nur ihren eigenen Fortschritt lesen und schreiben
-      allow read, write: if isStudent() && isOwner(userId);
+      // Jeder authentifizierte Benutzer kann seinen eigenen Fortschritt lesen und schreiben
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
 
-      // Lehrer können alle Fortschritte lesen
-      allow read: if isTeacher();
-
-      // Lehrer können Fortschritte zurücksetzen (write)
-      allow write: if isTeacher();
+      // Lehrer können alle Fortschritte lesen und schreiben
+      allow read, write: if isTeacher();
     }
 
     // ============= ARTEFAKTE (DATEI-UPLOADS) =============
