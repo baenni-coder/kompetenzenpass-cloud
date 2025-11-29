@@ -613,23 +613,120 @@ async function loadCompetencyManager() {
     const container = document.getElementById('competencyList');
     container.innerHTML = '';
 
-    competencies.forEach(comp => {
-        const item = document.createElement('div');
-        item.className = 'competency-item';
-
-        item.innerHTML = `
-            <div class="competency-content">
-                <div class="competency-name">${escapeHTML(comp.name)}</div>
-                <div class="competency-desc">${escapeHTML(comp.description)}</div>
-            </div>
-            <div class="competency-actions">
-                <button class="btn-icon" onclick="editCompetency('${escapeHTML(comp.id)}')" title="Bearbeiten">✏️</button>
-                <button class="btn-icon delete" onclick="deleteCompetency('${escapeHTML(comp.id)}')" title="Löschen">🗑️</button>
-            </div>
+    // Hierarchisch nach Bereichen gruppieren
+    for (const area of competencyAreas) {
+        // Bereichs-Header
+        const areaHeader = document.createElement('div');
+        areaHeader.style.cssText = `
+            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin: 20px 0 10px 0;
+            font-size: 18px;
+            font-weight: bold;
         `;
+        areaHeader.innerHTML = `${area.emoji} ${escapeHTML(area.name)}`;
+        container.appendChild(areaHeader);
 
-        container.appendChild(item);
-    });
+        // Alle Levels für diesen Bereich
+        const levelsInArea = competencyLevels.filter(level => {
+            const group = competencyGroups.find(g => g.id === level.competencyId);
+            return group && group.areaId === area.id;
+        });
+
+        // Nach Gruppen zusammenfassen
+        const groupedLevels = new Map();
+        for (const level of levelsInArea) {
+            if (!groupedLevels.has(level.competencyId)) {
+                groupedLevels.set(level.competencyId, []);
+            }
+            groupedLevels.get(level.competencyId).push(level);
+        }
+
+        // Für jede Gruppe einen Abschnitt erstellen
+        for (const [groupId, levels] of groupedLevels) {
+            const group = competencyGroups.find(g => g.id === groupId);
+            if (!group) continue;
+
+            // Gruppen-Container
+            const groupDiv = document.createElement('div');
+            groupDiv.style.cssText = `
+                background: #f8f9fa;
+                border-radius: 8px;
+                padding: 15px;
+                margin-bottom: 15px;
+            `;
+
+            // Gruppen-Titel
+            const groupTitle = document.createElement('div');
+            groupTitle.style.cssText = `
+                font-weight: bold;
+                color: #667eea;
+                margin-bottom: 10px;
+                font-size: 14px;
+            `;
+            groupTitle.textContent = `${group.lpCodePrefix} - ${group.name.substring(0, 100)}...`;
+            groupDiv.appendChild(groupTitle);
+
+            // Levels in dieser Gruppe
+            for (const level of levels) {
+                const item = document.createElement('div');
+                item.className = 'competency-item';
+                item.style.cssText = `
+                    background: white;
+                    border-left: 4px solid #667eea;
+                    padding: 12px;
+                    margin-bottom: 8px;
+                    border-radius: 6px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: start;
+                `;
+
+                const cycleText = level.cycles?.join(', ') || '';
+                const gradeText = level.grades?.join(', ') || '';
+                const basicReqBadge = level.isBasicRequirement ?
+                    '<span style="background: #ed8936; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; margin-left: 8px;">Grundanspruch</span>' : '';
+
+                item.innerHTML = `
+                    <div style="flex: 1;">
+                        <div style="font-weight: bold; margin-bottom: 5px;">
+                            ${escapeHTML(level.lpCode)} ${basicReqBadge}
+                        </div>
+                        <div style="color: #666; font-size: 13px; margin-bottom: 5px;">
+                            ${escapeHTML(level.description)}
+                        </div>
+                        <div style="font-size: 12px; color: #888;">
+                            ${cycleText ? `📚 ${cycleText}` : ''}
+                            ${gradeText ? `🎓 ${gradeText}` : ''}
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 5px;">
+                        <button class="btn-icon" onclick="editCompetencyLevel('${escapeHTML(level.id)}')" title="Bearbeiten">✏️</button>
+                        <button class="btn-icon delete" onclick="deleteCompetencyLevel('${escapeHTML(level.id)}')" title="Löschen">🗑️</button>
+                    </div>
+                `;
+
+                groupDiv.appendChild(item);
+            }
+
+            container.appendChild(groupDiv);
+        }
+
+        // Falls keine Kompetenzen in diesem Bereich
+        if (levelsInArea.length === 0) {
+            const emptyMsg = document.createElement('div');
+            emptyMsg.style.cssText = `
+                text-align: center;
+                color: #888;
+                padding: 20px;
+                font-style: italic;
+            `;
+            emptyMsg.textContent = 'Noch keine Kompetenzen in diesem Bereich';
+            container.appendChild(emptyMsg);
+        }
+    }
 }
 
 // Neue Kompetenz hinzufügen
@@ -1617,6 +1714,92 @@ window.editCompetency = async function(competencyId) {
     } catch (error) {
         console.error('Bearbeitungs-Fehler:', error);
         showNotification('Fehler beim Bearbeiten: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// ============= KOMPETENZSTUFEN BEARBEITEN/LÖSCHEN (NEU) =============
+
+// Kompetenzstufe bearbeiten
+window.editCompetencyLevel = async function(levelId) {
+    try {
+        const levelDoc = await getDoc(doc(window.db, 'competencyLevels', levelId));
+
+        if (!levelDoc.exists()) {
+            showNotification('Kompetenzstufe nicht gefunden!', 'error');
+            return;
+        }
+
+        const data = levelDoc.data();
+
+        const newDescription = prompt('Neue Beschreibung:', data.description);
+        if (newDescription === null) return;
+
+        if (!newDescription.trim()) {
+            showNotification('Beschreibung darf nicht leer sein!', 'error');
+            return;
+        }
+
+        showLoading(true);
+
+        await updateDoc(doc(window.db, 'competencyLevels', levelId), {
+            description: newDescription.trim()
+        });
+
+        showNotification('Kompetenzstufe erfolgreich aktualisiert!', 'success');
+        await loadCompetencies();
+        await loadCompetencyManager();
+    } catch (error) {
+        console.error('Bearbeitungs-Fehler:', error);
+        showNotification('Fehler beim Bearbeiten: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Kompetenzstufe löschen
+window.deleteCompetencyLevel = async function(levelId) {
+    if (!confirm('Möchtest du diese Kompetenzstufe wirklich löschen?\n\nAchtung: Alle Schüler-Bewertungen für diese Kompetenzstufe gehen verloren!')) {
+        return;
+    }
+
+    showLoading(true);
+
+    try {
+        // Zuerst aus allen Schüler-Fortschritten entfernen
+        try {
+            const studentsQuery = query(collection(window.db, 'users'), where('role', '==', 'student'));
+            const studentsSnapshot = await getDocs(studentsQuery);
+
+            for (const studentDoc of studentsSnapshot.docs) {
+                const progressRef = doc(window.db, 'progress', studentDoc.id);
+                const progressDoc = await getDoc(progressRef);
+
+                if (progressDoc.exists()) {
+                    const ratings = progressDoc.data().ratings || {};
+                    if (ratings[levelId]) {
+                        delete ratings[levelId];
+                        await updateDoc(progressRef, { ratings: ratings });
+                    }
+                }
+            }
+        } catch (progressError) {
+            console.warn('Fehler beim Aktualisieren der Schüler-Fortschritte:', progressError);
+        }
+
+        // Dann Kompetenzstufe löschen
+        await deleteDoc(doc(window.db, 'competencyLevels', levelId));
+
+        showNotification('Kompetenzstufe erfolgreich gelöscht!', 'success');
+
+        // Kompetenzen neu laden
+        await loadCompetencies();
+        await loadCompetencyManager();
+
+    } catch (error) {
+        console.error('Lösch-Fehler:', error);
+        showNotification('Fehler beim Löschen: ' + error.message, 'error');
     } finally {
         showLoading(false);
     }
