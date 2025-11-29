@@ -1586,10 +1586,16 @@ window.showStudentDetails = async function(studentId) {
                                 ${classOptions}
                             </select>
                         </div>
-                        <button onclick="saveStudentChanges('${studentId}')" 
-                                style="background: #667eea; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; width: 100%;">
-                            💾 Änderungen speichern
-                        </button>
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="saveStudentChanges('${studentId}')"
+                                    style="flex: 1; background: #667eea; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600;">
+                                💾 Änderungen speichern
+                            </button>
+                            <button onclick="deleteStudent('${studentId}')"
+                                    style="background: #f56565; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600;">
+                                🗑️ Löschen
+                            </button>
+                        </div>
                     </div>
 
                     <div style="margin-bottom: 25px;">
@@ -2902,4 +2908,430 @@ window.exportProgress = async function() {
 // Fortschritt teilen (Placeholder)
 window.shareProgress = function() {
     showNotification('Teilen-Funktion kommt bald!', 'info');
+};
+
+// ============= SCHÜLERVERWALTUNG =============
+
+// Sicheres Passwort generieren
+function generatePassword(length = 10) {
+    // Verwende leicht lesbare Zeichen (ohne verwirrende wie 0/O, 1/l/I)
+    const chars = 'abcdefghkmnpqrstuvwxyz23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    let password = '';
+
+    // Crypto.getRandomValues für sichere Zufallszahlen
+    const array = new Uint32Array(length);
+    crypto.getRandomValues(array);
+
+    for (let i = 0; i < length; i++) {
+        password += chars[array[i] % chars.length];
+    }
+
+    return password;
+}
+
+// Schüler löschen
+window.deleteStudent = async function(studentId) {
+    try {
+        // Schülerdaten laden
+        const studentDoc = await getDoc(doc(window.db, 'users', studentId));
+
+        if (!studentDoc.exists()) {
+            showNotification('Schüler nicht gefunden!', 'error');
+            return;
+        }
+
+        const studentData = studentDoc.data();
+
+        if (!confirm(`Möchtest du ${studentData.name} wirklich löschen?\n\nDies löscht:\n- Das Benutzerkonto\n- Alle Fortschrittsdaten\n- Alle hochgeladenen Artefakte\n\nDieser Vorgang kann NICHT rückgängig gemacht werden!`)) {
+            return;
+        }
+
+        showLoading(true);
+
+        // 1. Fortschrittsdaten löschen
+        const progressRef = doc(window.db, 'progress', studentId);
+        const progressDoc = await getDoc(progressRef);
+        if (progressDoc.exists()) {
+            await deleteDoc(progressRef);
+        }
+
+        // 2. Artefakte löschen (Firestore-Dokumente und Storage-Dateien)
+        const artifactsQuery = query(
+            collection(window.db, 'artifacts'),
+            where('userId', '==', studentId)
+        );
+        const artifactsSnapshot = await getDocs(artifactsQuery);
+
+        for (const artifactDoc of artifactsSnapshot.docs) {
+            try {
+                // Storage-Datei löschen
+                const artifactData = artifactDoc.data();
+                if (artifactData.fileUrl) {
+                    const fileRef = ref(window.storage, artifactData.fileUrl);
+                    await deleteObject(fileRef).catch(err => {
+                        console.warn('Datei konnte nicht gelöscht werden:', err);
+                    });
+                }
+
+                // Firestore-Dokument löschen
+                await deleteDoc(doc(window.db, 'artifacts', artifactDoc.id));
+            } catch (error) {
+                console.error('Fehler beim Löschen eines Artefakts:', error);
+            }
+        }
+
+        // 3. Benutzerdokument löschen
+        await deleteDoc(doc(window.db, 'users', studentId));
+
+        // Hinweis: Das Auth-Konto wird nicht gelöscht, da dies Admin-Rechte erfordert
+        // In einer Produktionsumgebung sollte dies über eine Cloud Function erfolgen
+
+        showNotification('Schüler erfolgreich gelöscht!', 'success');
+
+        // Modal schließen falls geöffnet
+        const modal = document.getElementById('studentModal');
+        if (modal) {
+            modal.remove();
+        }
+
+        // Schülerliste aktualisieren
+        await refreshStudentList();
+
+    } catch (error) {
+        console.error('Fehler beim Löschen des Schülers:', error);
+        showNotification('Fehler beim Löschen: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Mehrere Schüler auf einmal anlegen (Bulk-Import)
+window.bulkCreateStudents = async function() {
+    // Klassen laden
+    const classesSnapshot = await getDocs(collection(window.db, 'classes'));
+    const classes = [];
+    classesSnapshot.forEach((doc) => {
+        classes.push({ id: doc.id, ...doc.data() });
+    });
+    classes.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    if (classes.length === 0) {
+        showNotification('Bitte erstelle zuerst eine Klasse!', 'error');
+        return;
+    }
+
+    // Modal erstellen
+    const modal = document.createElement('div');
+    modal.id = 'bulkStudentModal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        animation: fadeIn 0.3s;
+    `;
+
+    let classOptions = '';
+    classes.forEach(classData => {
+        classOptions += `<option value="${classData.name}">${classData.name}</option>`;
+    });
+
+    modal.innerHTML = `
+        <div style="background: white; border-radius: 16px; max-width: 700px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 16px 16px 0 0;">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <h2 style="margin: 0; font-size: 24px;">👥 Mehrere Schüler anlegen</h2>
+                        <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">Erstelle mehrere Schüler-Accounts auf einmal</p>
+                    </div>
+                    <button onclick="document.getElementById('bulkStudentModal').remove()"
+                            style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 18px;">
+                        ✕
+                    </button>
+                </div>
+            </div>
+
+            <div style="padding: 25px;">
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #4a5568;">Klasse wählen:</label>
+                    <select id="bulkStudentClass"
+                            style="width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 14px;">
+                        ${classOptions}
+                    </select>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #4a5568;">
+                        Schüler-Namen (einer pro Zeile):
+                    </label>
+                    <textarea id="bulkStudentNames"
+                              placeholder="Max Mustermann&#10;Anna Schmidt&#10;Lisa Müller&#10;..."
+                              style="width: 100%; min-height: 200px; padding: 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 14px; font-family: monospace; resize: vertical;"></textarea>
+                    <p style="font-size: 12px; color: #888; margin-top: 5px;">
+                        💡 Tipp: Gib jeden Namen in eine neue Zeile ein. Die E-Mail-Adresse und das Passwort werden automatisch generiert.
+                    </p>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #4a5568;">
+                        E-Mail-Domain:
+                    </label>
+                    <input type="text" id="bulkEmailDomain" value="schule.example.com"
+                           placeholder="z.B. schule.example.com"
+                           style="width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 14px;">
+                    <p style="font-size: 12px; color: #888; margin-top: 5px;">
+                        💡 E-Mail wird generiert als: vorname.nachname@domain
+                    </p>
+                </div>
+
+                <button onclick="processBulkStudentCreation()"
+                        style="background: #667eea; color: white; border: none; padding: 14px 28px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; width: 100%;">
+                    ✨ Schüler-Accounts erstellen
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+};
+
+// Bulk-Erstellung verarbeiten
+window.processBulkStudentCreation = async function() {
+    const className = document.getElementById('bulkStudentClass').value;
+    const namesText = document.getElementById('bulkStudentNames').value;
+    const emailDomain = document.getElementById('bulkEmailDomain').value;
+
+    if (!className) {
+        showNotification('Bitte wähle eine Klasse!', 'error');
+        return;
+    }
+
+    if (!namesText.trim()) {
+        showNotification('Bitte gib mindestens einen Namen ein!', 'error');
+        return;
+    }
+
+    if (!emailDomain.trim()) {
+        showNotification('Bitte gib eine E-Mail-Domain ein!', 'error');
+        return;
+    }
+
+    // Namen parsen (eine Zeile pro Schüler)
+    const names = namesText.split('\n')
+        .map(name => name.trim())
+        .filter(name => name.length > 0);
+
+    if (names.length === 0) {
+        showNotification('Keine gültigen Namen gefunden!', 'error');
+        return;
+    }
+
+    showLoading(true);
+
+    const results = [];
+    const errors = [];
+
+    for (const fullName of names) {
+        try {
+            // E-Mail-Adresse generieren (vorname.nachname@domain)
+            const nameParts = fullName.toLowerCase()
+                .replace(/ä/g, 'ae')
+                .replace(/ö/g, 'oe')
+                .replace(/ü/g, 'ue')
+                .replace(/ß/g, 'ss')
+                .replace(/[^a-z\s]/g, '')
+                .split(/\s+/);
+
+            const email = nameParts.join('.') + '@' + emailDomain;
+
+            // Zufälliges Passwort generieren
+            const password = generatePassword(10);
+
+            // Benutzer erstellen
+            const userCredential = await createUserWithEmailAndPassword(window.auth, email, password);
+            const user = userCredential.user;
+
+            // Benutzerdaten in Firestore speichern
+            await setDoc(doc(window.db, 'users', user.uid), {
+                name: fullName,
+                email: email,
+                role: 'student',
+                class: className,
+                createdAt: serverTimestamp(),
+                lastActive: serverTimestamp()
+            });
+
+            // Leeren Fortschritt anlegen
+            await setDoc(doc(window.db, 'progress', user.uid), {
+                ratings: {},
+                lastUpdated: serverTimestamp()
+            });
+
+            results.push({
+                name: fullName,
+                email: email,
+                password: password,
+                success: true
+            });
+
+        } catch (error) {
+            console.error(`Fehler bei ${fullName}:`, error);
+            errors.push({
+                name: fullName,
+                error: error.message
+            });
+        }
+    }
+
+    showLoading(false);
+
+    // Modal schließen
+    document.getElementById('bulkStudentModal').remove();
+
+    if (results.length > 0) {
+        showNotification(`${results.length} Schüler erfolgreich erstellt!`, 'success');
+
+        // Zugangsdaten-Übersicht anzeigen
+        showAccessCredentials(results, className);
+
+        // Schülerliste aktualisieren
+        await refreshStudentList();
+    }
+
+    if (errors.length > 0) {
+        console.error('Fehler bei folgenden Schülern:', errors);
+        showNotification(`${errors.length} Schüler konnten nicht erstellt werden (siehe Konsole)`, 'error');
+    }
+};
+
+// Zugangsdaten-Übersicht anzeigen (druckbar)
+function showAccessCredentials(credentials, className) {
+    const modal = document.createElement('div');
+    modal.id = 'credentialsModal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10001;
+        animation: fadeIn 0.3s;
+    `;
+
+    const appUrl = window.location.origin + window.location.pathname;
+
+    let credentialsHTML = '';
+    credentials.forEach((cred, index) => {
+        credentialsHTML += `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 12px 15px; text-align: center; font-weight: 600; color: #667eea;">${index + 1}</td>
+                <td style="padding: 12px 15px; font-weight: 500;">${escapeHTML(cred.name)}</td>
+                <td style="padding: 12px 15px; font-family: monospace; color: #4a5568;">${escapeHTML(cred.email)}</td>
+                <td style="padding: 12px 15px; font-family: monospace; font-weight: 600; color: #667eea; background: #f7fafc;">${escapeHTML(cred.password)}</td>
+            </tr>
+        `;
+    });
+
+    modal.innerHTML = `
+        <div style="background: white; border-radius: 16px; max-width: 900px; width: 95%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+            <div style="background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: white; padding: 25px; border-radius: 16px 16px 0 0;">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <h2 style="margin: 0; font-size: 24px;">✅ Schüler-Accounts erfolgreich erstellt!</h2>
+                        <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">Klasse: ${escapeHTML(className)} • ${credentials.length} Schüler</p>
+                    </div>
+                    <button onclick="document.getElementById('credentialsModal').remove()"
+                            style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 18px;">
+                        ✕
+                    </button>
+                </div>
+            </div>
+
+            <div id="printableArea" style="padding: 25px;">
+                <div style="text-align: center; margin-bottom: 25px; padding: 20px; background: #f7fafc; border-radius: 12px; border: 2px dashed #667eea;">
+                    <h3 style="margin: 0 0 10px 0; color: #667eea; font-size: 18px;">🔗 Zugang zum Digitalen Kompetenzpass</h3>
+                    <div style="background: white; padding: 12px; border-radius: 8px; margin-top: 10px; border: 2px solid #e2e8f0;">
+                        <code style="font-size: 16px; color: #4a5568; word-break: break-all;">${appUrl}</code>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <h3 style="color: #4a5568; margin-bottom: 15px;">📋 Zugangsdaten</h3>
+                    <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                        <thead>
+                            <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                                <th style="padding: 15px; text-align: center; width: 60px;">#</th>
+                                <th style="padding: 15px; text-align: left;">Name</th>
+                                <th style="padding: 15px; text-align: left;">E-Mail</th>
+                                <th style="padding: 15px; text-align: left; width: 150px;">Passwort</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${credentialsHTML}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="background: #fffbeb; border-left: 4px solid #f6ad55; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <p style="margin: 0; color: #744210; font-size: 14px;">
+                        <strong>⚠️ Wichtig:</strong> Drucke diese Seite aus oder speichere sie als PDF.
+                        Die Passwörter werden aus Sicherheitsgründen nicht erneut angezeigt!
+                    </p>
+                </div>
+            </div>
+
+            <div style="padding: 0 25px 25px 25px; display: flex; gap: 10px;">
+                <button onclick="printCredentials()"
+                        style="flex: 1; background: #667eea; color: white; border: none; padding: 14px 28px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600;">
+                    🖨️ Drucken
+                </button>
+                <button onclick="downloadCredentialsAsPDF()"
+                        style="flex: 1; background: #48bb78; color: white; border: none; padding: 14px 28px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600;">
+                    📄 Als PDF speichern
+                </button>
+                <button onclick="document.getElementById('credentialsModal').remove()"
+                        style="background: #e2e8f0; color: #4a5568; border: none; padding: 14px 28px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600;">
+                    Schließen
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+}
+
+// Zugangsdaten drucken
+window.printCredentials = function() {
+    window.print();
+};
+
+// Zugangsdaten als PDF speichern
+window.downloadCredentialsAsPDF = async function() {
+    const element = document.getElementById('printableArea');
+
+    const opt = {
+        margin: 10,
+        filename: `Zugangsdaten_${new Date().toISOString().split('T')[0]}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
+    try {
+        await html2pdf().set(opt).from(element).save();
+        showNotification('PDF erfolgreich erstellt!', 'success');
+    } catch (error) {
+        console.error('PDF-Fehler:', error);
+        showNotification('Fehler beim PDF-Export. Bitte verwende die Drucken-Funktion.', 'error');
+    }
 };

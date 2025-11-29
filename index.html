@@ -162,6 +162,11 @@
 
             <!-- Tab: Schüler -->
             <div id="students-tab" class="tab-content hidden">
+                <div class="action-bar">
+                    <button onclick="bulkCreateStudents()" class="btn-add">
+                        ➕ Mehrere Schüler anlegen
+                    </button>
+                </div>
                 <div class="filter-bar">
                     <input type="text" id="studentSearch" placeholder="🔍 Suche..." onkeyup="filterStudents()">
                     <select id="classFilter" onchange="filterStudents()">
