@@ -1,0 +1,110 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Hilfsfunktionen
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isStudent() {
+      return isAuthenticated() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student';
+    }
+
+    function isTeacher() {
+      return isAuthenticated() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // ============= BENUTZER =============
+    match /users/{userId} {
+      // Jeder authentifizierte Benutzer kann sein eigenes Profil lesen
+      allow read: if isOwner(userId);
+
+      // Lehrer können alle Benutzerprofile lesen und schreiben
+      allow read, write: if isTeacher();
+
+      // Neue Benutzer können sich selbst erstellen (bei Registrierung)
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // ============= KLASSEN =============
+    match /classes/{classId} {
+      // Alle authentifizierten Benutzer können Klassen lesen
+      allow read: if isAuthenticated();
+
+      // Nur Lehrer können Klassen erstellen, bearbeiten und löschen
+      allow write: if isTeacher();
+    }
+
+    // ============= KOMPETENZBEREICHE =============
+    match /competencyAreas/{areaId} {
+      // Alle authentifizierten Benutzer können Kompetenzbereiche lesen
+      allow read: if isAuthenticated();
+
+      // Nur Lehrer können Kompetenzbereiche verwalten
+      allow write: if isTeacher();
+    }
+
+    // ============= KOMPETENZ-GRUPPEN =============
+    match /competencies/{competencyId} {
+      // Alle authentifizierten Benutzer können Kompetenzen lesen
+      allow read: if isAuthenticated();
+
+      // Nur Lehrer können Kompetenzen verwalten
+      allow write: if isTeacher();
+    }
+
+    // ============= KOMPETENZSTUFEN =============
+    match /competencyLevels/{levelId} {
+      // Alle authentifizierten Benutzer können Kompetenzstufen lesen
+      allow read: if isAuthenticated();
+
+      // Nur Lehrer können Kompetenzstufen verwalten
+      allow write: if isTeacher();
+    }
+
+    // ============= INDIKATOREN (NEU) =============
+    match /competencyIndicators/{indicatorId} {
+      // Alle authentifizierten Benutzer können Indikatoren lesen
+      allow read: if isAuthenticated();
+
+      // Nur Lehrer können Indikatoren erstellen, bearbeiten und löschen
+      allow write: if isTeacher();
+    }
+
+    // ============= FORTSCHRITT (BEWERTUNGEN) =============
+    match /progress/{userId} {
+      // Schüler können nur ihren eigenen Fortschritt lesen und schreiben
+      allow read, write: if isStudent() && isOwner(userId);
+
+      // Lehrer können alle Fortschritte lesen
+      allow read: if isTeacher();
+
+      // Lehrer können Fortschritte zurücksetzen (write)
+      allow write: if isTeacher();
+    }
+
+    // ============= ARTEFAKTE (DATEI-UPLOADS) =============
+    match /artifacts/{artifactId} {
+      // Schüler können ihre eigenen Artefakte lesen und erstellen
+      allow read, create: if isAuthenticated() &&
+                           request.resource.data.userId == request.auth.uid;
+
+      // Schüler können nur ihre eigenen Artefakte löschen
+      allow delete: if isAuthenticated() &&
+                     resource.data.userId == request.auth.uid;
+
+      // Lehrer können alle Artefakte lesen
+      allow read: if isTeacher();
+
+      // Lehrer können Artefakte löschen (falls nötig)
+      allow delete: if isTeacher();
+    }
+  }
+}

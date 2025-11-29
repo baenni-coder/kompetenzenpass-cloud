@@ -1,6 +1,6 @@
 # CLAUDE.md - Digitaler Kompetenzpass (Cloud Version)
 
-**Last Updated:** 2025-11-28
+**Last Updated:** 2025-11-29
 **Repository:** baenni-coder/kompetenzenpass-cloud
 **Language:** German (UI and comments)
 
@@ -120,6 +120,25 @@ kompetenzenpass-cloud/
   order: number                  // Display order within competency
 }
 ```
+
+#### `competencyIndicators` Collection (NEW - Granular Assessment)
+```javascript
+{
+  id: string,             // Indicator ID (auto-generated)
+  levelId: string,        // Reference to competencyLevel
+  text: string,           // "Ich kann..." statement (e.g., "Ich kann die Vor- und Nachteile von Nicknames im Internet erkennen")
+  order: number,          // Display order within competency level
+  createdBy: string,      // Teacher UID who created it
+  createdAt: timestamp    // Creation time
+}
+```
+
+**How Indicators Work:**
+- Teachers define concrete "Ich kann..." statements for each competency level
+- Students rate each indicator individually (1-5 stars)
+- The parent competency level rating is automatically calculated as the average of all indicator ratings
+- Indicators are optional - competency levels without indicators work as before with direct rating
+- Indicator ratings are stored in the progress document with the key format: `indicator_[indicatorId]`
 
 #### `artifacts` Collection (File Uploads)
 ```javascript

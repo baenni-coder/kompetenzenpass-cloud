@@ -8,6 +8,7 @@ Ein cloud-basiertes System zur Erfassung und Verfolgung von Kompetenzen im Bildu
 - ⭐ **Selbstbewertung** mit 5-Sterne-System
 - 📱 **Hierarchische Kompetenz-Struktur** basierend auf Lehrplan Informatik & Medien
 - 🎯 **Automatische Filterung** nach Klassenstufe
+- 💡 **Indikatoren** - Konkrete "Ich kann..."-Aussagen für granulare Bewertung
 - 📊 **Fortschrittsanzeige** mit Gesamtübersicht
 - 📎 **Artefakte hochladen** als Nachweise
 - 📄 **PDF-Export** des persönlichen Kompetenzpasses
@@ -17,6 +18,7 @@ Ein cloud-basiertes System zur Erfassung und Verfolgung von Kompetenzen im Bildu
 - 👥 **Schülerverwaltung** mit Klassen-Organisation
 - 📚 **87 Lehrplan-Kompetenzen** vordefiniert (Import-Tool)
 - 🏫 **Klassenstufen-Verwaltung** (KiGa bis 9. Klasse)
+- 💡 **Indikator-Verwaltung** - "Ich kann..."-Aussagen für jede Kompetenzstufe definieren
 - 📈 **Fortschritts-Reports** für einzelne Schüler und Klassen
 - ⚙️ **Kompetenz-Management** (Erstellen, Bearbeiten, Löschen)
 - 📊 **Echtzeit-Übersicht** aller Schülerfortschritte
@@ -74,11 +76,12 @@ Wichtig! Firestore Rules in der Firebase Console setzen:
 ```
 kompetenzenpass-cloud/
 ├── index.html                    # Haupt-App
-├── app-firebase.js               # App-Logik (~90KB)
-├── style.css                     # Styling (~14KB)
+├── app-firebase.js               # App-Logik (~100KB, inkl. Indikatoren)
+├── style.css                     # Styling (~15KB)
 ├── import-competencies.html      # Import-Tool für Lehrplan-Kompetenzen
 ├── Kompetenzen-Lehrplan.csv      # Lehrplan-Daten (87 Kompetenzstufen)
 ├── parse-csv.js                  # CSV-Parser Utility
+├── firestore.rules               # Firestore Security Rules
 ├── CLAUDE.md                     # Ausführliche Dokumentation
 └── README.md                     # Diese Datei
 ```
@@ -106,10 +109,11 @@ Schüler sehen nur Kompetenzen ihrer Klassenstufe:
 
 - **users** - Benutzer (Schüler & Lehrer)
 - **classes** - Klassen mit Klassenstufe
-- **progress** - Schüler-Bewertungen
+- **progress** - Schüler-Bewertungen (inkl. Indikator-Bewertungen)
 - **competencyAreas** - 3 Kompetenzbereiche
 - **competencies** - Kompetenz-Gruppen
 - **competencyLevels** - 87 Kompetenzstufen
+- **competencyIndicators** - "Ich kann..."-Aussagen zu Kompetenzstufen
 - **artifacts** - Hochgeladene Dateien
 
 Details siehe `CLAUDE.md`
