@@ -321,6 +321,11 @@ async function loadCompetencies(gradeFilter = null) {
             console.warn('Keine Kompetenzen gefunden. Bitte Import-Tool verwenden.');
         }
     } catch (error) {
+        // Silently handle permission errors (rules not deployed yet)
+        if (error.code === 'permission-denied' || error.message?.includes('Missing or insufficient permissions')) {
+            console.warn('Kompetenzen können nicht geladen werden. Bitte Firebase Security Rules deployen.');
+            return;
+        }
         console.error('Fehler beim Laden der Kompetenzen:', error);
     }
 }
@@ -2635,6 +2640,10 @@ async function loadArtifacts(competencyId) {
         return artifacts;
 
     } catch (error) {
+        // Silently return empty array if permission error (rules not deployed yet)
+        if (error.code === 'permission-denied' || error.message?.includes('Missing or insufficient permissions')) {
+            return [];
+        }
         console.error('Fehler beim Laden der Artefakte:', error);
         return [];
     }
