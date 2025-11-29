@@ -633,6 +633,21 @@ button.secondary:hover {
     font-weight: normal;
 }
 
+.indicator-badge {
+    display: inline-block;
+    background: var(--color-info);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    margin-left: 8px;
+    font-weight: normal;
+}
+
+.indicators-list {
+    margin-top: 10px;
+}
+
 .competency-actions {
     margin-top: 15px;
     display: flex;

@@ -37,6 +37,7 @@ let competencies = []; // Wird durch competencyLevels ersetzt
 let competencyAreas = []; // Kompetenzbereiche (Medien, Informatik, Anwendungen)
 let competencyGroups = []; // Kompetenz-Gruppen (übergeordnet)
 let competencyLevels = []; // Konkrete Kompetenzstufen
+let competencyIndicators = []; // Indikatoren ("Ich kann..."-Aussagen) zu Kompetenzstufen
 let unsubscribeListeners = [];
 
 // ============= KONSTANTEN =============
@@ -361,6 +362,45 @@ function matchCycle(cycle, gradeFilter) {
     return false;
 }
 
+// Indikatoren laden (optional: für bestimmte Kompetenzstufe)
+async function loadIndicators(levelId = null) {
+    try {
+        let indicatorsQuery;
+        if (levelId) {
+            // Nur Indikatoren für eine bestimmte Kompetenzstufe laden
+            indicatorsQuery = query(
+                collection(window.db, 'competencyIndicators'),
+                where('levelId', '==', levelId),
+                orderBy('order')
+            );
+        } else {
+            // Alle Indikatoren laden
+            indicatorsQuery = query(
+                collection(window.db, 'competencyIndicators'),
+                orderBy('order')
+            );
+        }
+
+        const indicatorsSnapshot = await getDocs(indicatorsQuery);
+        const indicators = [];
+
+        indicatorsSnapshot.forEach((doc) => {
+            indicators.push({ id: doc.id, ...doc.data() });
+        });
+
+        if (levelId) {
+            return indicators; // Nur die geladenen Indikatoren zurückgeben
+        } else {
+            competencyIndicators = indicators; // Globale Variable aktualisieren
+            console.log(`Geladen: ${competencyIndicators.length} Indikatoren`);
+            return indicators;
+        }
+    } catch (error) {
+        console.error('Fehler beim Laden der Indikatoren:', error);
+        return [];
+    }
+}
+
 // Standard-Kompetenzen erstellen
 async function createDefaultCompetencies() {
     const defaultCompetencies = [
@@ -505,7 +545,35 @@ async function renderStudentCompetencies(ratings) {
 
             // Einzelne Kompetenzstufen
             for (const level of levels) {
-                const rating = ratings[level.id] || 0;
+                // Indikatoren für diese Stufe laden
+                const indicators = await loadIndicators(level.id);
+
+                // Rating berechnen (Durchschnitt der Indikator-Bewertungen oder direkte Bewertung)
+                let rating = 0;
+                let isCalculated = false;
+
+                if (indicators.length > 0) {
+                    // Rating aus Indikator-Durchschnitt berechnen
+                    let totalRating = 0;
+                    let ratedCount = 0;
+
+                    for (const indicator of indicators) {
+                        const indicatorKey = `indicator_${indicator.id}`;
+                        const indicatorRating = ratings[indicatorKey] || 0;
+                        if (indicatorRating > 0) {
+                            totalRating += indicatorRating;
+                            ratedCount++;
+                        }
+                    }
+
+                    if (ratedCount > 0) {
+                        rating = Math.round(totalRating / ratedCount);
+                        isCalculated = true;
+                    }
+                } else {
+                    // Keine Indikatoren: Direkte Bewertung verwenden
+                    rating = ratings[level.id] || 0;
+                }
 
                 // Artefakte für diese Kompetenz zählen
                 const artifacts = await loadArtifacts(level.id);
@@ -525,6 +593,7 @@ async function renderStudentCompetencies(ratings) {
                                 <strong>${escapeHTML(level.lpCode)}</strong>
                                 ${basicReqBadge}
                                 ${artifactCount > 0 ? `<span class="artifact-badge">${artifactCount} 📎</span>` : ''}
+                                ${indicators.length > 0 ? `<span class="indicator-badge">${indicators.length} Indikatoren</span>` : ''}
                             </div>
                             <div class="competency-description">${escapeHTML(level.description)}</div>
                             <div class="competency-meta">
@@ -533,18 +602,87 @@ async function renderStudentCompetencies(ratings) {
                             </div>
                         </div>
                         <div class="stars" data-competency="${escapeHTML(level.id)}">
-                            ${createStars(level.id, rating)}
+                            ${isCalculated ?
+                                `<div style="text-align: center; font-size: 12px; color: #888; margin-bottom: 5px;">Ø Indikatoren</div>` : ''}
+                            ${indicators.length === 0 ? createStars(level.id, rating) : createStarsReadOnly(rating)}
                         </div>
                     </div>
                     <div class="progress-bar">
                         <div class="progress-fill" style="width: ${rating * 20}%"></div>
                     </div>
-                    <div class="competency-actions">
-                        <button class="btn-artifact" onclick="showArtifactsModal('${escapeHTML(level.id)}', '${escapeHTML(level.lpCode)}')" title="Artefakte verwalten">
-                            📎 Artefakte (${artifactCount})
-                        </button>
-                    </div>
                 `;
+
+                // Indikatoren-Bereich (falls vorhanden)
+                if (indicators.length > 0) {
+                    const indicatorsSection = document.createElement('div');
+                    indicatorsSection.style.cssText = 'border-top: 1px solid #e0e0e0; padding-top: 10px; margin-top: 10px;';
+
+                    const indicatorsToggle = document.createElement('button');
+                    indicatorsToggle.className = 'btn-secondary';
+                    indicatorsToggle.style.cssText = 'width: 100%; margin-bottom: 10px; font-size: 13px;';
+                    indicatorsToggle.innerHTML = `<span class="indicator-toggle">▶</span> ${indicators.length} Indikatoren anzeigen`;
+
+                    const indicatorsList = document.createElement('div');
+                    indicatorsList.style.display = 'none';
+                    indicatorsList.className = 'indicators-list';
+
+                    for (const indicator of indicators) {
+                        const indicatorKey = `indicator_${indicator.id}`;
+                        const indicatorRating = ratings[indicatorKey] || 0;
+
+                        const indicatorItem = document.createElement('div');
+                        indicatorItem.style.cssText = `
+                            background: #f8f9fa;
+                            border-left: 3px solid #4299e1;
+                            padding: 12px;
+                            margin-bottom: 8px;
+                            border-radius: 6px;
+                        `;
+
+                        indicatorItem.innerHTML = `
+                            <div style="display: flex; justify-content: space-between; align-items: start; gap: 15px;">
+                                <div style="flex: 1; font-size: 14px; color: #333;">
+                                    ${escapeHTML(indicator.text)}
+                                </div>
+                                <div class="stars" data-competency="${escapeHTML(indicatorKey)}" style="flex-shrink: 0;">
+                                    ${createStars(indicatorKey, indicatorRating)}
+                                </div>
+                            </div>
+                            <div class="progress-bar" style="margin-top: 8px;">
+                                <div class="progress-fill" style="width: ${indicatorRating * 20}%"></div>
+                            </div>
+                        `;
+
+                        indicatorsList.appendChild(indicatorItem);
+                    }
+
+                    indicatorsToggle.onclick = function() {
+                        const toggle = this.querySelector('.indicator-toggle');
+                        if (indicatorsList.style.display === 'none') {
+                            indicatorsList.style.display = 'block';
+                            toggle.textContent = '▼';
+                            this.innerHTML = `<span class="indicator-toggle">▼</span> ${indicators.length} Indikatoren verbergen`;
+                        } else {
+                            indicatorsList.style.display = 'none';
+                            toggle.textContent = '▶';
+                            this.innerHTML = `<span class="indicator-toggle">▶</span> ${indicators.length} Indikatoren anzeigen`;
+                        }
+                    };
+
+                    indicatorsSection.appendChild(indicatorsToggle);
+                    indicatorsSection.appendChild(indicatorsList);
+                    card.appendChild(indicatorsSection);
+                }
+
+                // Artefakte-Button
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'competency-actions';
+                actionsDiv.innerHTML = `
+                    <button class="btn-artifact" onclick="showArtifactsModal('${escapeHTML(level.id)}', '${escapeHTML(level.lpCode)}')" title="Artefakte verwalten">
+                        📎 Artefakte (${artifactCount})
+                    </button>
+                `;
+                card.appendChild(actionsDiv);
 
                 levelsContainer.appendChild(card);
             }
@@ -703,6 +841,7 @@ async function loadCompetencyManager() {
                         </div>
                     </div>
                     <div style="display: flex; gap: 5px;">
+                        <button class="btn-icon" onclick="manageIndicators('${escapeHTML(level.id)}')" title="Indikatoren verwalten" style="background: #4299e1;">📝</button>
                         <button class="btn-icon" onclick="editCompetencyLevel('${escapeHTML(level.id)}')" title="Bearbeiten">✏️</button>
                         <button class="btn-icon delete" onclick="deleteCompetencyLevel('${escapeHTML(level.id)}')" title="Löschen">🗑️</button>
                     </div>
@@ -1722,6 +1861,304 @@ window.editCompetency = async function(competencyId) {
 // ============= KOMPETENZSTUFEN BEARBEITEN/LÖSCHEN (NEU) =============
 
 // Kompetenzstufe bearbeiten
+// Indikatoren für eine Kompetenzstufe verwalten
+window.manageIndicators = async function(levelId) {
+    showLoading(true);
+
+    try {
+        // Kompetenzstufe laden
+        const levelDoc = await getDoc(doc(window.db, 'competencyLevels', levelId));
+        if (!levelDoc.exists()) {
+            showNotification('Kompetenzstufe nicht gefunden!', 'error');
+            return;
+        }
+        const levelData = levelDoc.data();
+
+        // Indikatoren für diese Stufe laden
+        const indicators = await loadIndicators(levelId);
+
+        showLoading(false);
+
+        // Modal erstellen
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            overflow: auto;
+            padding: 20px;
+        `;
+
+        const modalContent = document.createElement('div');
+        modalContent.style.cssText = `
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 800px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 50px rgba(0, 0, 0, 0.3);
+        `;
+
+        // Header
+        const header = document.createElement('div');
+        header.style.cssText = `
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        `;
+        header.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: start;">
+                <div>
+                    <h2 style="margin: 0 0 10px 0; color: #667eea;">Indikatoren verwalten</h2>
+                    <div style="color: #666; font-size: 14px; margin-bottom: 5px;">
+                        <strong>${escapeHTML(levelData.lpCode)}</strong>
+                    </div>
+                    <div style="color: #888; font-size: 13px;">
+                        ${escapeHTML(levelData.description)}
+                    </div>
+                </div>
+                <button onclick="this.closest('[style*=fixed]').remove()" style="
+                    background: none;
+                    border: none;
+                    font-size: 24px;
+                    cursor: pointer;
+                    color: #666;
+                ">×</button>
+            </div>
+        `;
+        modalContent.appendChild(header);
+
+        // Indikatoren-Liste
+        const indicatorsList = document.createElement('div');
+        indicatorsList.id = 'indicatorsList';
+        indicatorsList.style.cssText = 'margin-bottom: 20px;';
+
+        function renderIndicatorsList() {
+            indicatorsList.innerHTML = '';
+
+            if (indicators.length === 0) {
+                indicatorsList.innerHTML = `
+                    <div style="text-align: center; padding: 30px; color: #888; font-style: italic;">
+                        Noch keine Indikatoren definiert.<br>
+                        Klicke auf "Neuer Indikator" um einen hinzuzufügen.
+                    </div>
+                `;
+            } else {
+                indicators.forEach((indicator, index) => {
+                    const indicatorItem = document.createElement('div');
+                    indicatorItem.style.cssText = `
+                        background: #f8f9fa;
+                        border-left: 4px solid #4299e1;
+                        padding: 15px;
+                        margin-bottom: 10px;
+                        border-radius: 8px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: start;
+                    `;
+
+                    indicatorItem.innerHTML = `
+                        <div style="flex: 1;">
+                            <div style="color: #888; font-size: 12px; margin-bottom: 5px;">
+                                Indikator ${index + 1}
+                            </div>
+                            <div style="color: #333; font-size: 14px;">
+                                ${escapeHTML(indicator.text)}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 5px;">
+                            <button class="btn-icon" onclick="editIndicator('${escapeHTML(indicator.id)}')" title="Bearbeiten">✏️</button>
+                            <button class="btn-icon delete" onclick="deleteIndicator('${escapeHTML(indicator.id)}')" title="Löschen">🗑️</button>
+                        </div>
+                    `;
+
+                    indicatorsList.appendChild(indicatorItem);
+                });
+            }
+        }
+
+        renderIndicatorsList();
+        modalContent.appendChild(indicatorsList);
+
+        // Buttons
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.cssText = 'display: flex; gap: 10px; justify-content: flex-end;';
+        buttonContainer.innerHTML = `
+            <button class="btn" onclick="addNewIndicator('${escapeHTML(levelId)}')" style="background: #48bb78;">
+                ➕ Neuer Indikator
+            </button>
+            <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">
+                Schließen
+            </button>
+        `;
+        modalContent.appendChild(buttonContainer);
+
+        modal.appendChild(modalContent);
+        document.body.appendChild(modal);
+
+        // Click outside to close
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+
+    } catch (error) {
+        console.error('Fehler beim Laden der Indikatoren:', error);
+        showNotification('Fehler beim Laden der Indikatoren: ' + error.message, 'error');
+        showLoading(false);
+    }
+};
+
+// Neuen Indikator hinzufügen
+window.addNewIndicator = async function(levelId) {
+    const text = prompt('Neuer Indikator:\n(z.B. "Ich kann die Vor- und Nachteile von Nicknames im Internet erkennen.")');
+
+    if (text === null || !text.trim()) {
+        return;
+    }
+
+    showLoading(true);
+
+    try {
+        // Aktuelle Anzahl Indikatoren ermitteln für order
+        const currentIndicators = await loadIndicators(levelId);
+        const order = currentIndicators.length;
+
+        // Neuen Indikator erstellen
+        await setDoc(doc(collection(window.db, 'competencyIndicators')), {
+            levelId: levelId,
+            text: text.trim(),
+            order: order,
+            createdBy: currentUser.uid,
+            createdAt: serverTimestamp()
+        });
+
+        showNotification('Indikator erfolgreich hinzugefügt!', 'success');
+
+        // Modal schließen und neu öffnen um aktualisierte Liste zu zeigen
+        document.querySelector('[style*="position: fixed"]')?.remove();
+        await manageIndicators(levelId);
+
+    } catch (error) {
+        console.error('Fehler beim Hinzufügen:', error);
+        showNotification('Fehler beim Hinzufügen: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Indikator bearbeiten
+window.editIndicator = async function(indicatorId) {
+    showLoading(true);
+
+    try {
+        const indicatorDoc = await getDoc(doc(window.db, 'competencyIndicators', indicatorId));
+
+        if (!indicatorDoc.exists()) {
+            showNotification('Indikator nicht gefunden!', 'error');
+            showLoading(false);
+            return;
+        }
+
+        const data = indicatorDoc.data();
+        showLoading(false);
+
+        const newText = prompt('Indikator bearbeiten:', data.text);
+
+        if (newText === null || !newText.trim()) {
+            return;
+        }
+
+        showLoading(true);
+
+        await updateDoc(doc(window.db, 'competencyIndicators', indicatorId), {
+            text: newText.trim()
+        });
+
+        showNotification('Indikator erfolgreich aktualisiert!', 'success');
+
+        // Modal schließen und neu öffnen
+        document.querySelector('[style*="position: fixed"]')?.remove();
+        await manageIndicators(data.levelId);
+
+    } catch (error) {
+        console.error('Fehler beim Bearbeiten:', error);
+        showNotification('Fehler beim Bearbeiten: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Indikator löschen
+window.deleteIndicator = async function(indicatorId) {
+    if (!confirm('Möchtest du diesen Indikator wirklich löschen?\n\nAchtung: Alle Schüler-Bewertungen für diesen Indikator gehen verloren!')) {
+        return;
+    }
+
+    showLoading(true);
+
+    try {
+        // Indikator-Daten laden um levelId zu bekommen
+        const indicatorDoc = await getDoc(doc(window.db, 'competencyIndicators', indicatorId));
+
+        if (!indicatorDoc.exists()) {
+            showNotification('Indikator nicht gefunden!', 'error');
+            showLoading(false);
+            return;
+        }
+
+        const levelId = indicatorDoc.data().levelId;
+
+        // Zuerst aus allen Schüler-Fortschritten entfernen
+        try {
+            const studentsQuery = query(collection(window.db, 'users'), where('role', '==', 'student'));
+            const studentsSnapshot = await getDocs(studentsQuery);
+
+            for (const studentDoc of studentsSnapshot.docs) {
+                const progressRef = doc(window.db, 'progress', studentDoc.id);
+                const progressDoc = await getDoc(progressRef);
+
+                if (progressDoc.exists()) {
+                    const ratings = progressDoc.data().ratings || {};
+                    // Indikator-Bewertungen haben das Format: 'indicator_[indicatorId]'
+                    const indicatorKey = `indicator_${indicatorId}`;
+                    if (ratings[indicatorKey]) {
+                        delete ratings[indicatorKey];
+                        await updateDoc(progressRef, { ratings: ratings });
+                    }
+                }
+            }
+        } catch (progressError) {
+            console.warn('Fehler beim Aktualisieren der Schüler-Fortschritte:', progressError);
+        }
+
+        // Dann Indikator löschen
+        await deleteDoc(doc(window.db, 'competencyIndicators', indicatorId));
+
+        showNotification('Indikator erfolgreich gelöscht!', 'success');
+
+        // Modal schließen und neu öffnen
+        document.querySelector('[style*="position: fixed"]')?.remove();
+        await manageIndicators(levelId);
+
+    } catch (error) {
+        console.error('Fehler beim Löschen:', error);
+        showNotification('Fehler beim Löschen: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
 window.editCompetencyLevel = async function(levelId) {
     try {
         const levelDoc = await getDoc(doc(window.db, 'competencyLevels', levelId));
@@ -1995,6 +2432,16 @@ function createStars(competencyId, currentRating) {
     for (let i = 1; i <= MAX_RATING; i++) {
         const filled = i <= currentRating ? 'filled' : '';
         starsHTML += `<span class="star ${filled}" data-rating="${i}">★</span>`;
+    }
+    return starsHTML;
+}
+
+// Sterne nur zur Anzeige (nicht anklickbar, für berechnete Durchschnitte)
+function createStarsReadOnly(currentRating) {
+    let starsHTML = '';
+    for (let i = 1; i <= MAX_RATING; i++) {
+        const filled = i <= currentRating ? 'filled' : '';
+        starsHTML += `<span class="star ${filled}" style="cursor: default; pointer-events: none;">★</span>`;
     }
     return starsHTML;
 }
