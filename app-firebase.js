@@ -294,9 +294,13 @@ async function loadCompetencies(gradeFilter = null) {
         levelsSnapshot.forEach((doc) => {
             const level = { id: doc.id, ...doc.data() };
 
-            // Optional: Nach Klassenstufe filtern
+            // Optional: Nach Klassenstufe/Zyklus filtern
             if (gradeFilter) {
-                if (level.grades && level.grades.some(g => matchGrade(g, gradeFilter))) {
+                // Prüfen ob Level zur Klassenstufe passt (über grades ODER cycles)
+                const matchesByGrade = level.grades && level.grades.some(g => matchGrade(g, gradeFilter));
+                const matchesByCycle = level.cycles && level.cycles.some(c => matchCycle(c, gradeFilter));
+
+                if (matchesByGrade || matchesByCycle) {
                     competencyLevels.push(level);
                 }
             } else {
@@ -330,6 +334,31 @@ function matchGrade(grade, filter) {
     const filterNormalized = filter.replace(/[./]/g, '');
 
     return normalized.includes(filterNormalized) || filterNormalized.includes(normalized);
+}
+
+// Hilfsfunktion: Prüft ob Klassenstufe zum Zyklus passt
+function matchCycle(cycle, gradeFilter) {
+    // Mapping: Klassenstufe → Zyklus
+    // Zyklus 1: KiGa, 1./2.
+    // Zyklus 2: 3./4., 5./6.
+    // Zyklus 3: 7., 8., 9.
+
+    const cycleName = cycle.toLowerCase();
+    const grade = gradeFilter.toLowerCase().replace(/[./]/g, '');
+
+    if (cycleName.includes('zyklus 1') || cycleName.includes('1')) {
+        // KiGa, 1, 2, 1./2.
+        return grade.includes('kiga') || grade === '1' || grade === '2' || grade === '12';
+    } else if (cycleName.includes('zyklus 2') || cycleName.includes('2')) {
+        // 3, 4, 5, 6, 3./4., 5./6.
+        return grade === '3' || grade === '4' || grade === '34' ||
+               grade === '5' || grade === '6' || grade === '56';
+    } else if (cycleName.includes('zyklus 3') || cycleName.includes('3')) {
+        // 7, 8, 9, 7./8.
+        return grade === '7' || grade === '8' || grade === '78' || grade === '9';
+    }
+
+    return false;
 }
 
 // Standard-Kompetenzen erstellen
