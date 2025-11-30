@@ -890,14 +890,23 @@ function renderBadgeShowcase() {
     const container = document.getElementById('badgeShowcase');
     if (!container) return;
 
-    // Wenn keine Badges, nichts anzeigen
+    container.style.display = 'block';
+
+    // Wenn keine Badges, Platzhalter anzeigen
     if (userBadges.length === 0) {
-        container.innerHTML = '';
-        container.style.display = 'none';
+        container.innerHTML = `
+            <div class="badge-showcase-header">
+                <h3>🏆 Auszeichnungen (0)</h3>
+                <button class="badge-view-all" onclick="showBadgeCollection()">Alle Badges ansehen</button>
+            </div>
+            <div class="badge-showcase-empty">
+                <div class="badge-showcase-empty-icon">🎯</div>
+                <p>Du hast noch keine Badges erhalten.</p>
+                <p class="badge-showcase-empty-hint">Bewerte Kompetenzen, um deine ersten Badges zu verdienen!</p>
+            </div>
+        `;
         return;
     }
-
-    container.style.display = 'block';
 
     // Nur die letzten 5 Badges anzeigen
     const recentBadges = userBadges.slice(0, 5);
@@ -1100,6 +1109,339 @@ function formatDate(timestamp) {
         day: 'numeric'
     });
 }
+
+// ============= LEHRER BADGE-MANAGEMENT =============
+
+// Sub-Tab Navigation für Badge-Tab
+window.switchBadgeSubTab = function(subTabId) {
+    // Alle Sub-Tabs ausblenden
+    document.querySelectorAll('.sub-tab-content').forEach(tab => {
+        tab.classList.add('hidden');
+    });
+
+    // Alle Sub-Tab Buttons deaktivieren
+    document.querySelectorAll('.sub-tab-button').forEach(btn => {
+        btn.classList.remove('active');
+    });
+
+    // Gewählten Sub-Tab anzeigen
+    const selectedTab = document.getElementById(subTabId);
+    if (selectedTab) {
+        selectedTab.classList.remove('hidden');
+    }
+
+    // Button aktivieren
+    event.target.classList.add('active');
+
+    // Content laden
+    switch(subTabId) {
+        case 'manage-badges':
+            loadBadgeManagement();
+            break;
+        case 'award-badges':
+            loadAwardBadgeForm();
+            break;
+        case 'create-badge':
+            loadCustomBadges();
+            break;
+    }
+};
+
+// Badge-Verwaltung laden
+async function loadBadgeManagement() {
+    const container = document.getElementById('badgeManagementList');
+    if (!container) return;
+
+    // Alle Badges (Systemund custom) laden
+    const customBadgesSnapshot = await getDocs(collection(window.db, 'customBadges'));
+    const customBadges = customBadgesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        type: 'custom'
+    }));
+
+    const allBadges = [...BADGE_DEFINITIONS, ...customBadges];
+
+    container.innerHTML = `
+        <div class="badge-management-grid">
+            ${allBadges.map(badge => `
+                <div class="badge-management-card">
+                    <div class="badge-card-top">
+                        <div class="badge-card-emoji" style="background: linear-gradient(135deg, ${badge.color}33, ${badge.color}66);">
+                            ${badge.emoji}
+                        </div>
+                        <div class="badge-type-indicator ${badge.type}">
+                            ${badge.type === 'automatic' ? '🤖 Automatisch' : badge.type === 'custom' ? '✨ Eigenes' : '👨‍🏫 Lehrer'}
+                        </div>
+                    </div>
+                    <div class="badge-card-body">
+                        <h5>${badge.name}</h5>
+                        <p>${badge.description}</p>
+                        <div class="badge-meta">
+                            <span class="badge-rarity badge-rarity-${badge.rarity}">
+                                ${badge.rarity === 'common' ? '🟢 Häufig' : badge.rarity === 'rare' ? '🔵 Selten' : badge.rarity === 'epic' ? '🟣 Episch' : '🟡 Legendär'}
+                            </span>
+                        </div>
+                    </div>
+                    ${badge.type === 'custom' ? `
+                        <div class="badge-card-actions">
+                            <button onclick="editCustomBadge('${badge.id}')" class="btn-icon" title="Bearbeiten">✏️</button>
+                            <button onclick="deleteCustomBadge('${badge.id}')" class="btn-icon" title="Löschen">🗑️</button>
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+// Award Badge Form laden
+async function loadAwardBadgeForm() {
+    // Schüler-Liste laden
+    const studentsSnapshot = await getDocs(
+        query(collection(window.db, 'users'), where('role', '==', 'student'))
+    );
+
+    const studentSelect = document.getElementById('awardBadgeStudent');
+    if (studentSelect) {
+        studentSelect.innerHTML = '<option value="">Schüler wählen...</option>' +
+            studentsSnapshot.docs.map(doc => {
+                const data = doc.data();
+                return `<option value="${doc.id}">${data.name} (${data.class})</option>`;
+            }).join('');
+    }
+
+    // Badge-Liste laden (nur Lehrer-Badges und Custom-Badges)
+    const customBadgesSnapshot = await getDocs(collection(window.db, 'customBadges'));
+    const customBadges = customBadgesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+    }));
+
+    const teacherBadges = BADGE_DEFINITIONS.filter(b => b.type === 'teacher' || b.category === 'custom');
+    const allAwardableBadges = [...teacherBadges, ...customBadges];
+
+    const badgeSelect = document.getElementById('awardBadgeType');
+    if (badgeSelect) {
+        badgeSelect.innerHTML = '<option value="">Badge wählen...</option>' +
+            allAwardableBadges.map(badge =>
+                `<option value="${badge.id}">${badge.emoji} ${badge.name}</option>`
+            ).join('');
+    }
+
+    // Kürzlich verliehene Badges laden
+    await loadRecentBadgeAwards();
+}
+
+// Kürzlich verliehene Badges laden
+async function loadRecentBadgeAwards() {
+    const container = document.getElementById('recentBadgeAwards');
+    if (!container) return;
+
+    try {
+        const recentSnapshot = await getDocs(
+            query(
+                collection(window.db, 'userBadges'),
+                where('awardedBy', '==', currentUser.uid),
+                orderBy('awardedAt', 'desc'),
+                limit(10)
+            )
+        );
+
+        if (recentSnapshot.empty) {
+            container.innerHTML = '<p class="empty-state">Noch keine Badges verliehen</p>';
+            return;
+        }
+
+        const recentAwards = await Promise.all(recentSnapshot.docs.map(async doc => {
+            const data = doc.data();
+            const userDoc = await getDoc(doc(window.db, 'users', data.userId));
+            const userData = userDoc.data();
+
+            const badgeData = BADGE_DEFINITIONS.find(b => b.id === data.badgeId) ||
+                              (await getDoc(doc(window.db, 'customBadges', data.badgeId))).data();
+
+            return { ...data, userName: userData?.name, badgeData };
+        }));
+
+        container.innerHTML = recentAwards.map(award => `
+            <div class="recent-award-item">
+                <span class="award-emoji">${award.badgeData?.emoji || '🏆'}</span>
+                <div class="award-info">
+                    <strong>${award.badgeData?.name}</strong>
+                    <span>→ ${award.userName}</span>
+                    <small>${formatDate(award.awardedAt)}</small>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Fehler beim Laden der kürzlichen Badge-Verleihungen:', error);
+        container.innerHTML = '<p class="error-state">Fehler beim Laden</p>';
+    }
+}
+
+// Badge an Schüler verleihen
+window.executeAwardBadge = async function() {
+    const studentId = document.getElementById('awardBadgeStudent').value;
+    const badgeId = document.getElementById('awardBadgeType').value;
+    const reason = document.getElementById('awardBadgeReason').value.trim();
+
+    if (!studentId || !badgeId) {
+        showNotification('Bitte Schüler und Badge auswählen!', 'error');
+        return;
+    }
+
+    showLoading(true);
+    try {
+        const success = await awardBadge(studentId, badgeId, currentUser.uid, reason || null);
+
+        if (success) {
+            showNotification('Badge erfolgreich verliehen!', 'success');
+
+            // Formular zurücksetzen
+            document.getElementById('awardBadgeStudent').value = '';
+            document.getElementById('awardBadgeType').value = '';
+            document.getElementById('awardBadgeReason').value = '';
+
+            // Kürzlich verliehene Badges aktualisieren
+            await loadRecentBadgeAwards();
+        } else {
+            showNotification('Badge wurde bereits verliehen!', 'warning');
+        }
+    } catch (error) {
+        console.error('Fehler beim Verleihen:', error);
+        showNotification('Fehler beim Verleihen des Badge!', 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Eigene Badges laden
+async function loadCustomBadges() {
+    const container = document.getElementById('customBadgesList');
+    if (!container) return;
+
+    try {
+        const customSnapshot = await getDocs(
+            query(
+                collection(window.db, 'customBadges'),
+                where('createdBy', '==', currentUser.uid),
+                orderBy('createdAt', 'desc')
+            )
+        );
+
+        if (customSnapshot.empty) {
+            container.innerHTML = '<p class="empty-state">Du hast noch keine eigenen Badges erstellt</p>';
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="custom-badges-grid">
+                ${customSnapshot.docs.map(doc => {
+                    const badge = doc.data();
+                    return `
+                        <div class="badge-card earned">
+                            <div class="badge-card-emoji" style="background: linear-gradient(135deg, ${badge.color}33, ${badge.color}66);">
+                                ${badge.emoji}
+                            </div>
+                            <div class="badge-card-name">${badge.name}</div>
+                            <div class="badge-rarity badge-rarity-${badge.rarity}">
+                                ${badge.rarity === 'common' ? 'Häufig' : badge.rarity === 'rare' ? 'Selten' : badge.rarity === 'epic' ? 'Episch' : 'Legendär'}
+                            </div>
+                            <div class="badge-card-actions">
+                                <button onclick="editCustomBadge('${doc.id}')" class="btn-icon">✏️</button>
+                                <button onclick="deleteCustomBadge('${doc.id}')" class="btn-icon">🗑️</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    } catch (error) {
+        console.error('Fehler beim Laden der eigenen Badges:', error);
+        container.innerHTML = '<p class="error-state">Fehler beim Laden</p>';
+    }
+}
+
+// Eigenes Badge erstellen
+window.createCustomBadge = async function() {
+    const name = document.getElementById('newBadgeName').value.trim();
+    const description = document.getElementById('newBadgeDescription').value.trim();
+    const emoji = document.getElementById('newBadgeEmoji').value.trim();
+    const rarity = document.getElementById('newBadgeRarity').value;
+    const color = document.getElementById('newBadgeColor').value;
+
+    if (!name || !description || !emoji) {
+        showNotification('Bitte alle Felder ausfüllen!', 'error');
+        return;
+    }
+
+    showLoading(true);
+    try {
+        const badgeData = {
+            name,
+            description,
+            emoji,
+            rarity,
+            color,
+            type: 'custom',
+            category: 'teacher',
+            createdBy: currentUser.uid,
+            createdAt: serverTimestamp(),
+            order: 100
+        };
+
+        await setDoc(doc(collection(window.db, 'customBadges')), badgeData);
+
+        showNotification('Badge erfolgreich erstellt!', 'success');
+
+        // Formular zurücksetzen
+        document.getElementById('newBadgeName').value = '';
+        document.getElementById('newBadgeDescription').value = '';
+        document.getElementById('newBadgeEmoji').value = '';
+        document.getElementById('newBadgeRarity').value = 'common';
+        document.getElementById('newBadgeColor').value = '#667eea';
+
+        // Eigene Badges neu laden
+        await loadCustomBadges();
+    } catch (error) {
+        console.error('Fehler beim Erstellen:', error);
+        showNotification('Fehler beim Erstellen des Badge!', 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Badge bearbeiten (Placeholder)
+window.editCustomBadge = function(badgeId) {
+    showNotification('Bearbeiten-Funktion kommt bald!', 'info');
+};
+
+// Badge löschen
+window.deleteCustomBadge = async function(badgeId) {
+    if (!confirm('Badge wirklich löschen? Bereits verliehene Badges bleiben erhalten.')) {
+        return;
+    }
+
+    showLoading(true);
+    try {
+        await deleteDoc(doc(window.db, 'customBadges', badgeId));
+        showNotification('Badge gelöscht!', 'success');
+        await loadCustomBadges();
+        await loadBadgeManagement();
+    } catch (error) {
+        console.error('Fehler beim Löschen:', error);
+        showNotification('Fehler beim Löschen!', 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Badge-Filter
+window.filterTeacherBadges = function() {
+    // TODO: Implementiere Filter-Logik
+    loadBadgeManagement();
+};
 
 // ============= SCHÜLER-BEREICH =============
 async function showStudentArea(userData) {

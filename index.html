@@ -142,6 +142,9 @@
                 <button class="tab-button" onclick="switchTab('classes-tab', event)">
                     🏫 Klassen
                 </button>
+                <button class="tab-button" onclick="switchTab('badges-tab', event)">
+                    🏆 Auszeichnungen
+                </button>
                 <button class="tab-button" onclick="switchTab('reports-tab', event)">
                     📊 Berichte
                 </button>
@@ -193,6 +196,120 @@
                 </div>
                 <div id="classesList" class="classes-grid">
                     <!-- Klassenübersicht -->
+                </div>
+            </div>
+
+            <!-- Tab: Auszeichnungen -->
+            <div id="badges-tab" class="tab-content hidden">
+                <div class="badges-tab-header">
+                    <h3>🏆 Badge-Verwaltung</h3>
+                    <p class="subtitle">Verwalte Badges und verleihe Auszeichnungen an Schüler</p>
+                </div>
+
+                <!-- Sub-Tabs -->
+                <div class="sub-tab-navigation">
+                    <button class="sub-tab-button active" onclick="switchBadgeSubTab('manage-badges')">
+                        📋 Badge-Verwaltung
+                    </button>
+                    <button class="sub-tab-button" onclick="switchBadgeSubTab('award-badges')">
+                        🎁 Badges verleihen
+                    </button>
+                    <button class="sub-tab-button" onclick="switchBadgeSubTab('create-badge')">
+                        ✨ Eigenes Badge erstellen
+                    </button>
+                </div>
+
+                <!-- Sub-Tab: Badge-Verwaltung -->
+                <div id="manage-badges" class="sub-tab-content">
+                    <div class="badge-management-controls">
+                        <h4>Verfügbare Badges</h4>
+                        <div class="badge-filter">
+                            <select id="badgeTypeFilter" onchange="filterTeacherBadges()">
+                                <option value="all">Alle Badges</option>
+                                <option value="automatic">Automatische Badges</option>
+                                <option value="teacher">Lehrer-Badges</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="badgeManagementList" class="badge-management-list">
+                        <!-- Badges werden hier geladen -->
+                    </div>
+                </div>
+
+                <!-- Sub-Tab: Badges verleihen -->
+                <div id="award-badges" class="sub-tab-content hidden">
+                    <div class="award-badge-form">
+                        <h4>Badge an Schüler verleihen</h4>
+                        <div class="form-group">
+                            <label>Schüler auswählen:</label>
+                            <select id="awardBadgeStudent" class="form-control">
+                                <option value="">Schüler wählen...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Badge auswählen:</label>
+                            <select id="awardBadgeType" class="form-control">
+                                <option value="">Badge wählen...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Begründung (optional):</label>
+                            <textarea id="awardBadgeReason" class="form-control" rows="3" placeholder="z.B. 'Für herausragende Leistung im Projekt...'"></textarea>
+                        </div>
+                        <div class="form-actions">
+                            <button onclick="executeAwardBadge()" class="btn-primary">🎁 Badge verleihen</button>
+                        </div>
+                    </div>
+
+                    <div class="recent-awards">
+                        <h4>Kürzlich verliehene Badges</h4>
+                        <div id="recentBadgeAwards" class="recent-awards-list">
+                            <!-- Kürzlich verliehene Badges -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sub-Tab: Eigenes Badge erstellen -->
+                <div id="create-badge" class="sub-tab-content hidden">
+                    <div class="create-badge-form">
+                        <h4>Neues Badge erstellen</h4>
+                        <div class="form-group">
+                            <label>Badge-Name:</label>
+                            <input type="text" id="newBadgeName" class="form-control" placeholder="z.B. 'Kreativ-Preis'">
+                        </div>
+                        <div class="form-group">
+                            <label>Beschreibung:</label>
+                            <input type="text" id="newBadgeDescription" class="form-control" placeholder="z.B. 'Für besonders kreative Lösungen'">
+                        </div>
+                        <div class="form-group">
+                            <label>Emoji (Icon):</label>
+                            <input type="text" id="newBadgeEmoji" class="form-control" placeholder="z.B. 🎨" maxlength="2">
+                            <small class="form-hint">Tipp: Kopiere ein Emoji von <a href="https://emojipedia.org" target="_blank">Emojipedia</a></small>
+                        </div>
+                        <div class="form-group">
+                            <label>Seltenheit:</label>
+                            <select id="newBadgeRarity" class="form-control">
+                                <option value="common">🟢 Häufig</option>
+                                <option value="rare">🔵 Selten</option>
+                                <option value="epic">🟣 Episch</option>
+                                <option value="legendary">🟡 Legendär</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Farbe:</label>
+                            <input type="color" id="newBadgeColor" class="form-control" value="#667eea">
+                        </div>
+                        <div class="form-actions">
+                            <button onclick="createCustomBadge()" class="btn-primary">✨ Badge erstellen</button>
+                        </div>
+                    </div>
+
+                    <div class="custom-badges-preview">
+                        <h4>Meine erstellten Badges</h4>
+                        <div id="customBadgesList" class="custom-badges-list">
+                            <!-- Eigene Badges -->
+                        </div>
+                    </div>
                 </div>
             </div>
 
