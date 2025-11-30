@@ -16,6 +16,10 @@ Ein cloud-basiertes System zur Erfassung und Verfolgung von Kompetenzen im Bildu
 
 ### Für Lehrpersonen
 - 👥 **Schülerverwaltung** mit Klassen-Organisation
+- ✨ **Bulk-Import** - Mehrere Schüler auf einmal anlegen (NEU 2025-11-30)
+- 🔑 **Automatische Zugangsdaten** - Sichere Passwörter & E-Mail-Generierung (NEU)
+- 🖨️ **Druckbare Übersicht** - Zugangsdaten als Liste oder PDF exportieren (NEU)
+- 🗑️ **Schüler löschen** - Vollständige Datenlöschung inkl. Artefakte (NEU)
 - 📚 **87 Lehrplan-Kompetenzen** vordefiniert (Import-Tool)
 - 🏫 **Klassenstufen-Verwaltung** (KiGa bis 9. Klasse)
 - 💡 **Indikator-Verwaltung** - "Ich kann..."-Aussagen für jede Kompetenzstufe definieren
@@ -62,13 +66,17 @@ Wichtig! Firestore Rules in der Firebase Console setzen:
 ### 4. Erste Schritte
 **Als Lehrer:**
 1. Klasse erstellen mit Klassenstufe (z.B. "7a", Stufe "7")
-2. Schüler registrieren oder Zugänge erstellen
-3. Schüler zur Klasse zuweisen
+2. **Schüler anlegen** mit Bulk-Import:
+   - Tab "Schüler" → "➕ Mehrere Schüler anlegen"
+   - Namen eingeben (einer pro Zeile)
+   - E-Mail-Domain festlegen
+   - Zugangsdaten ausdrucken oder als PDF speichern
+3. Zugangsdaten an Schüler verteilen
 
 **Als Schüler:**
-1. Registrieren oder mit Zugangsdaten anmelden
+1. Mit erhaltenen Zugangsdaten anmelden
 2. Kompetenzen bewerten (1-5 Sterne)
-3. Artefakte hochladen
+3. Optional: Artefakte hochladen
 4. Fortschritt verfolgen
 
 ## 📁 Dateistruktur
@@ -76,7 +84,7 @@ Wichtig! Firestore Rules in der Firebase Console setzen:
 ```
 kompetenzenpass-cloud/
 ├── index.html                    # Haupt-App
-├── app-firebase.js               # App-Logik (~100KB, inkl. Indikatoren)
+├── app-firebase.js               # App-Logik (~110KB, inkl. Schülerverwaltung)
 ├── style.css                     # Styling (~15KB)
 ├── import-competencies.html      # Import-Tool für Lehrplan-Kompetenzen
 ├── Kompetenzen-Lehrplan.csv      # Lehrplan-Daten (87 Kompetenzstufen)
@@ -141,8 +149,15 @@ Ausführliche Dokumentation für Entwickler: siehe **CLAUDE.md**
 ## 🐛 Known Issues
 
 - Offline-Modus nicht unterstützt
-- Keine Batch-Operations für Schüler-Import
-- PDF-Export nur für einzelne Schüler
+- PDF-Export nur für einzelne Schüler (kein Klassen-Batch-Export)
+- Firebase Auth-Konten werden beim Löschen nicht entfernt (erfordert Cloud Functions)
+
+## ✅ Kürzlich implementiert (2025-11-30)
+
+- ✨ **Bulk-Import** für Schüler
+- 🔑 **Automatische Passwort-Generierung**
+- 🖨️ **Druckbare Zugangsdaten-Übersicht**
+- 🗑️ **Schüler löschen** mit vollständiger Datenbereinigung
 
 ## 🔮 Future Ideas
 
@@ -150,6 +165,8 @@ Ausführliche Dokumentation für Entwickler: siehe **CLAUDE.md**
 - Badges/Achievements System
 - Lehrer-Kommentare
 - Eltern-Zugang (read-only)
-- CSV-Import für Schülerlisten
+- CSV-Import für Schülerlisten (zusätzlich zu Text-Input)
 - Dark Mode
 - Multi-Sprach-Support
+- Passwort-Reset-Funktion
+- Cloud Functions für vollständige User-Löschung

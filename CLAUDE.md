@@ -1,6 +1,6 @@
 # CLAUDE.md - Digitaler Kompetenzpass (Cloud Version)
 
-**Last Updated:** 2025-11-29
+**Last Updated:** 2025-11-30
 **Repository:** baenni-coder/kompetenzenpass-cloud
 **Language:** German (UI and comments)
 
@@ -11,6 +11,8 @@ This is a cloud-based digital competency tracking system (Kompetenzpass) for edu
 ### Purpose
 - Students track their skill progress across various competencies
 - Teachers manage competencies, classes, and monitor student progress
+- **Teachers can bulk-create student accounts with auto-generated credentials**
+- **Printable access credentials overview for easy distribution**
 - Real-time cloud synchronization across devices
 - PDF export functionality for competency reports
 
@@ -38,7 +40,7 @@ This is a cloud-based digital competency tracking system (Kompetenzpass) for edu
 ```
 kompetenzenpass-cloud/
 ├── index.html                    # Main app structure & Firebase initialization
-├── app-firebase.js               # Core application logic (~90KB)
+├── app-firebase.js               # Core application logic (~110KB)
 ├── style.css                     # All styling and animations (~14KB)
 ├── import-competencies.html      # Tool to import curriculum competencies
 ├── Kompetenzen-Lehrplan.csv      # Curriculum data (87 competency levels)
@@ -48,6 +50,8 @@ kompetenzenpass-cloud/
 ```
 
 **Simple Architecture:** Core app in 3 files, plus import tool and curriculum data.
+
+**NEW (2025-11-30):** Student management features including bulk creation, deletion, and printable credentials.
 
 ## Firebase Configuration
 
@@ -269,9 +273,14 @@ try {
 | `loadUserData()` | app-firebase.js:176 | Load user profile and route to correct view |
 | `loadCompetencies()` | app-firebase.js:209 | Fetch all competencies from Firestore |
 | `updateRating()` | app-firebase.js:329 | Save student rating to Firestore |
-| `showStudentDetails()` | app-firebase.js:915 | Teacher view: Show/edit student details |
+| `showStudentDetails()` | app-firebase.js:1472 | Teacher view: Show/edit student details |
 | `generateReport()` | app-firebase.js:683 | Generate class reports |
-| `exportProgress()` | app-firebase.js:1467 | Export student progress as PDF |
+| `exportProgress()` | app-firebase.js:2844 | Export student progress as PDF |
+| **`generatePassword()`** | **app-firebase.js:2916** | **Generate secure, readable passwords** |
+| **`deleteStudent()`** | **app-firebase.js:2933** | **Delete student with all data (progress, artifacts)** |
+| **`bulkCreateStudents()`** | **app-firebase.js:3009** | **Show bulk student creation dialog** |
+| **`processBulkStudentCreation()`** | **app-firebase.js:3105** | **Process bulk student creation with credentials** |
+| **`showAccessCredentials()`** | **app-firebase.js:3249** | **Display printable credentials overview** |
 
 ## UI Components
 
@@ -395,6 +404,78 @@ window.myNewFeature = async function() {
 **GitHub Pages:**
 - Currently configured with `authDomain: "https://baenni-coder.github.io/"`
 - Files can be deployed directly
+
+### Student Management Workflows (NEW - 2025-11-30)
+
+#### Bulk Student Creation
+1. Teacher navigates to **Schüler** tab
+2. Click "➕ Mehrere Schüler anlegen" button
+3. Select target class from dropdown
+4. Enter student names (one per line)
+5. Configure email domain (e.g., `schule.example.com`)
+6. Click "✨ Schüler-Accounts erstellen"
+7. System generates:
+   - Email addresses (`vorname.nachname@domain`)
+   - Secure passwords (10 characters, readable)
+   - Firebase Auth accounts
+   - Firestore user documents
+   - Empty progress documents
+8. **Printable credentials overview** is displayed automatically
+9. Teacher can print or save as PDF
+
+**Technical Implementation:**
+- Uses **secondary Firebase App instance** to avoid auth conflicts
+- `initializeApp(config, 'Secondary')` creates isolated auth context
+- Primary teacher auth remains active throughout process
+- Secondary app is deleted after completion
+- Prevents "Missing or insufficient permissions" errors
+
+**Password Generation:**
+- Uses `crypto.getRandomValues()` for cryptographic security
+- Character set: `a-z, A-Z, 2-9` (excludes confusing chars like 0/O, 1/l/I)
+- Default length: 10 characters
+- Example: `a7XmN5pqRt`
+
+**Email Generation:**
+- Converts name to lowercase
+- Replaces umlauts (ä→ae, ö→oe, ü→ue, ß→ss)
+- Removes special characters
+- Joins name parts with dots
+- Example: "Max Müller" → `max.mueller@schule.example.com`
+
+#### Student Deletion
+1. Teacher clicks student in **Schüler** tab
+2. Student details modal opens
+3. Click red "🗑️ Löschen" button
+4. Confirm deletion warning (explains consequences)
+5. System deletes:
+   - User document (`/users/{uid}`)
+   - Progress document (`/progress/{uid}`)
+   - All artifacts (`/artifacts` where `userId == uid`)
+   - Storage files for artifacts
+6. Modal closes automatically
+7. Student list refreshes
+
+**Important Notes:**
+- Firebase Auth account is NOT deleted (requires admin SDK/Cloud Functions)
+- Deletion is irreversible
+- All student data is permanently removed
+- Storage files are deleted individually with error handling
+
+#### Credentials Overview Features
+**Display:**
+- App URL (auto-detected)
+- Table with: #, Name, Email, Password
+- Styled for printing
+- Warning about password visibility
+
+**Actions:**
+- 🖨️ Print directly (browser print dialog)
+- 📄 Save as PDF (via html2pdf.js)
+- Close modal
+
+**Security Note:**
+Passwords are only shown once during creation. They cannot be retrieved later.
 
 ## Common Tasks for AI Assistants
 
@@ -528,11 +609,17 @@ When making changes:
 
 1. **No offline support** - Requires internet connection
 2. **Client-side only validation** - No server-side security enforcement
-3. **No data export bulk operations** - PDF only for individual students
-4. **Progress report over time** - Placeholder, not implemented
-5. **No user management** - Teachers can't be created from UI
-6. **No password reset** - Not implemented
-7. **Limited report customization** - Fixed formats only
+3. **Progress report over time** - Placeholder, not implemented
+4. **No teacher account management** - Teachers can't be created from UI
+5. **No password reset** - Not implemented
+6. **Limited report customization** - Fixed formats only
+7. **Auth account deletion** - Firebase Auth accounts not deleted when student is removed (requires Cloud Functions)
+
+## Implemented Features (Previously Limitations)
+
+✅ **Bulk student creation** - Teachers can create multiple students at once (2025-11-30)
+✅ **Student deletion** - Complete removal of student data (2025-11-30)
+✅ **Credentials management** - Printable/PDF access credentials overview (2025-11-30)
 
 ## Future Enhancement Ideas
 
@@ -541,10 +628,12 @@ Based on code structure:
 - Badges/achievements system
 - Teacher comments on student progress
 - Parent access with read-only view
-- Bulk operations (import students from CSV)
+- CSV import for student lists (in addition to bulk text input)
 - Custom competency templates
 - Multi-language support
 - Dark mode toggle
+- Password reset functionality
+- Cloud Functions for complete user deletion (including Auth)
 
 ## Debugging Tips
 
