@@ -39,6 +39,8 @@ let competencyGroups = []; // Kompetenz-Gruppen (übergeordnet)
 let competencyLevels = []; // Konkrete Kompetenzstufen
 let competencyIndicators = []; // Indikatoren ("Ich kann..."-Aussagen) zu Kompetenzstufen
 let unsubscribeListeners = [];
+let userBadges = []; // Badges des aktuellen Benutzers
+let newlyAwardedBadges = []; // Kürzlich erhaltene Badges (für Benachrichtigungen)
 
 // ============= KONSTANTEN =============
 const MAX_RATING = 5; // Maximale Anzahl Sterne
@@ -55,6 +57,209 @@ const ALLOWED_FILE_TYPES = [
     'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     'text/plain',
     'video/mp4', 'video/quicktime', 'video/x-msvideo'
+];
+
+// ============= BADGE DEFINITIONEN =============
+const BADGE_DEFINITIONS = [
+    // Automatische Meilenstein-Badges
+    {
+        id: 'first-steps',
+        name: 'Erste Schritte',
+        description: 'Erste Kompetenz bewertet',
+        emoji: '🎯',
+        type: 'automatic',
+        category: 'progress',
+        criteria: { type: 'any_rating', threshold: 1 },
+        color: '#48bb78',
+        rarity: 'common',
+        order: 1
+    },
+    {
+        id: 'bronze-collector',
+        name: 'Bronze-Sammler',
+        description: '10 Kompetenzen mit mindestens 3 Sternen',
+        emoji: '🥉',
+        type: 'automatic',
+        category: 'progress',
+        criteria: { type: 'star_count', threshold: 10, minStars: 3 },
+        color: '#cd7f32',
+        rarity: 'common',
+        order: 2
+    },
+    {
+        id: 'silver-collector',
+        name: 'Silber-Sammler',
+        description: '25 Kompetenzen mit mindestens 3 Sternen',
+        emoji: '🥈',
+        type: 'automatic',
+        category: 'progress',
+        criteria: { type: 'star_count', threshold: 25, minStars: 3 },
+        color: '#c0c0c0',
+        rarity: 'rare',
+        order: 3
+    },
+    {
+        id: 'gold-collector',
+        name: 'Gold-Sammler',
+        description: '50 Kompetenzen mit mindestens 3 Sternen',
+        emoji: '🥇',
+        type: 'automatic',
+        category: 'progress',
+        criteria: { type: 'star_count', threshold: 50, minStars: 3 },
+        color: '#ffd700',
+        rarity: 'epic',
+        order: 4
+    },
+    {
+        id: 'perfectionist',
+        name: 'Perfektionist',
+        description: '10 Kompetenzen mit 5 Sternen',
+        emoji: '⭐',
+        type: 'automatic',
+        category: 'progress',
+        criteria: { type: 'star_count', threshold: 10, minStars: 5 },
+        color: '#fbbf24',
+        rarity: 'rare',
+        order: 5
+    },
+    {
+        id: 'completionist',
+        name: 'Vollständigkeit',
+        description: 'Alle Kompetenzen bewertet',
+        emoji: '✅',
+        type: 'automatic',
+        category: 'progress',
+        criteria: { type: 'all_rated' },
+        color: '#10b981',
+        rarity: 'epic',
+        order: 6
+    },
+
+    // Bereichs-Experte Badges
+    {
+        id: 'media-expert',
+        name: 'Medien-Experte',
+        description: 'Alle Medien-Kompetenzen mit mindestens 4 Sternen',
+        emoji: '📱',
+        type: 'automatic',
+        category: 'area',
+        criteria: { type: 'area_mastery', areaId: 'medien', minStars: 4 },
+        color: '#8b5cf6',
+        rarity: 'epic',
+        order: 7
+    },
+    {
+        id: 'informatics-pro',
+        name: 'Informatik-Profi',
+        description: 'Alle Informatik-Kompetenzen mit mindestens 4 Sternen',
+        emoji: '💻',
+        type: 'automatic',
+        category: 'area',
+        criteria: { type: 'area_mastery', areaId: 'informatik', minStars: 4 },
+        color: '#3b82f6',
+        rarity: 'epic',
+        order: 8
+    },
+    {
+        id: 'application-champion',
+        name: 'Anwendungs-Champion',
+        description: 'Alle Anwendungskompetenzen mit mindestens 4 Sternen',
+        emoji: '🎯',
+        type: 'automatic',
+        category: 'area',
+        criteria: { type: 'area_mastery', areaId: 'anwendung', minStars: 4 },
+        color: '#ec4899',
+        rarity: 'epic',
+        order: 9
+    },
+
+    // Weitere automatische Badges
+    {
+        id: 'master-apprentice',
+        name: 'Meister',
+        description: 'Alle Kompetenzen eines Bereichs mit mindestens 4 Sternen',
+        emoji: '🏆',
+        type: 'automatic',
+        category: 'progress',
+        criteria: { type: 'any_area_complete', minStars: 4 },
+        color: '#f59e0b',
+        rarity: 'legendary',
+        order: 10
+    },
+    {
+        id: 'star-collector-5',
+        name: '5-Sterne-Sammler',
+        description: '5 Kompetenzen mit 5 Sternen',
+        emoji: '🌟',
+        type: 'automatic',
+        category: 'progress',
+        criteria: { type: 'star_count', threshold: 5, minStars: 5 },
+        color: '#fbbf24',
+        rarity: 'common',
+        order: 11
+    },
+    {
+        id: 'star-collector-20',
+        name: 'Sternen-Profi',
+        description: '20 Kompetenzen mit 5 Sternen',
+        emoji: '✨',
+        type: 'automatic',
+        category: 'progress',
+        criteria: { type: 'star_count', threshold: 20, minStars: 5 },
+        color: '#a855f7',
+        rarity: 'epic',
+        order: 12
+    },
+
+    // Zeitbasierte Badges
+    {
+        id: 'early-bird',
+        name: 'Früher Vogel',
+        description: 'Erste Bewertung vor 8 Uhr morgens',
+        emoji: '🌅',
+        type: 'automatic',
+        category: 'special',
+        criteria: { type: 'time_based', timeCheck: 'before_8am' },
+        color: '#f97316',
+        rarity: 'rare',
+        order: 13
+    },
+    {
+        id: 'weekend-learner',
+        name: 'Wochenend-Lerner',
+        description: '5 Bewertungen am Wochenende',
+        emoji: '🎮',
+        type: 'automatic',
+        category: 'special',
+        criteria: { type: 'time_based', timeCheck: 'weekend', threshold: 5 },
+        color: '#06b6d4',
+        rarity: 'rare',
+        order: 14
+    },
+    {
+        id: 'consistency',
+        name: 'Regelmäßigkeit',
+        description: '7 Tage in Folge aktiv',
+        emoji: '📅',
+        type: 'automatic',
+        category: 'special',
+        criteria: { type: 'consecutive_days', threshold: 7 },
+        color: '#84cc16',
+        rarity: 'epic',
+        order: 15
+    },
+    {
+        id: 'yearly-review',
+        name: 'Jahres-Rückblick',
+        description: 'Alle Kompetenzen mindestens einmal im Schuljahr überprüft',
+        emoji: '📊',
+        type: 'automatic',
+        category: 'special',
+        criteria: { type: 'yearly_review' },
+        color: '#6366f1',
+        rarity: 'legendary',
+        order: 16
+    }
 ];
 
 // ============= INITIALISIERUNG =============
@@ -426,6 +631,476 @@ async function createDefaultCompetencies() {
     }
 }
 
+// ============= BADGE MANAGEMENT =============
+
+// Badges des Benutzers laden
+async function loadUserBadges(userId) {
+    try {
+        const badgesQuery = query(
+            collection(window.db, 'userBadges'),
+            where('userId', '==', userId),
+            orderBy('awardedAt', 'desc')
+        );
+
+        const snapshot = await getDocs(badgesQuery);
+        userBadges = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+
+        return userBadges;
+    } catch (error) {
+        console.error('Fehler beim Laden der Badges:', error);
+        return [];
+    }
+}
+
+// Badge an Benutzer verleihen
+async function awardBadge(userId, badgeId, awardedBy = null, reason = null) {
+    try {
+        // Prüfen ob Badge bereits vorhanden
+        const existingQuery = query(
+            collection(window.db, 'userBadges'),
+            where('userId', '==', userId),
+            where('badgeId', '==', badgeId)
+        );
+        const existingBadges = await getDocs(existingQuery);
+
+        if (!existingBadges.empty) {
+            return false; // Badge bereits vorhanden
+        }
+
+        // Badge verleihen
+        const badgeData = {
+            userId: userId,
+            badgeId: badgeId,
+            awardedAt: serverTimestamp(),
+            notified: false
+        };
+
+        if (awardedBy) badgeData.awardedBy = awardedBy;
+        if (reason) badgeData.reason = reason;
+
+        await setDoc(doc(collection(window.db, 'userBadges')), badgeData);
+
+        // Badge Definition finden
+        const badgeDef = BADGE_DEFINITIONS.find(b => b.id === badgeId);
+
+        // Zu neu erhaltenen Badges hinzufügen (für Benachrichtigung)
+        if (badgeDef) {
+            newlyAwardedBadges.push({
+                ...badgeDef,
+                awardedAt: new Date()
+            });
+        }
+
+        return true;
+    } catch (error) {
+        console.error('Fehler beim Verleihen des Badge:', error);
+        return false;
+    }
+}
+
+// Prüfen und automatisch Badges verleihen
+async function checkAndAwardBadges(userId) {
+    if (!userId) return;
+
+    try {
+        // Progress-Daten laden
+        const progressRef = doc(window.db, 'progress', userId);
+        const progressDoc = await getDoc(progressRef);
+
+        if (!progressDoc.exists()) return;
+
+        const ratings = progressDoc.data().ratings || {};
+
+        // Bereits erhaltene Badges laden
+        await loadUserBadges(userId);
+        const earnedBadgeIds = userBadges.map(b => b.badgeId);
+
+        // Durch alle Badge-Definitionen gehen
+        for (const badge of BADGE_DEFINITIONS) {
+            // Überspringen wenn bereits vorhanden
+            if (earnedBadgeIds.includes(badge.id)) continue;
+
+            // Nur automatische Badges prüfen
+            if (badge.type !== 'automatic') continue;
+
+            // Kriterien prüfen
+            const earned = await checkBadgeCriteria(badge, ratings, userId);
+
+            if (earned) {
+                await awardBadge(userId, badge.id);
+            }
+        }
+    } catch (error) {
+        console.error('Fehler bei Badge-Prüfung:', error);
+    }
+}
+
+// Badge-Kriterien prüfen
+async function checkBadgeCriteria(badge, ratings, userId) {
+    const criteria = badge.criteria;
+
+    switch (criteria.type) {
+        case 'any_rating':
+            // Mindestens eine Bewertung
+            return Object.keys(ratings).length >= criteria.threshold;
+
+        case 'star_count':
+            // Anzahl Kompetenzen mit mindestens X Sternen
+            const qualifyingRatings = Object.values(ratings).filter(
+                r => r >= criteria.minStars
+            );
+            return qualifyingRatings.length >= criteria.threshold;
+
+        case 'all_rated':
+            // Alle Kompetenzen bewertet
+            return Object.keys(ratings).length >= competencyLevels.length;
+
+        case 'area_mastery':
+            // Alle Kompetenzen eines Bereichs mit mindestens X Sternen
+            const areaLevels = competencyLevels.filter(
+                level => {
+                    const comp = competencyGroups.find(c => c.id === level.competencyId);
+                    return comp && comp.areaId === criteria.areaId;
+                }
+            );
+
+            if (areaLevels.length === 0) return false;
+
+            const masteredInArea = areaLevels.filter(level => {
+                const levelKey = `level_${level.id}`;
+                return ratings[levelKey] >= criteria.minStars;
+            });
+
+            return masteredInArea.length === areaLevels.length;
+
+        case 'any_area_complete':
+            // Irgendein Kompetenzbereich vollständig mit X Sternen
+            for (const area of competencyAreas) {
+                const areaLevels = competencyLevels.filter(level => {
+                    const comp = competencyGroups.find(c => c.id === level.competencyId);
+                    return comp && comp.areaId === area.id;
+                });
+
+                const masteredInArea = areaLevels.filter(level => {
+                    const levelKey = `level_${level.id}`;
+                    return ratings[levelKey] >= criteria.minStars;
+                });
+
+                if (masteredInArea.length === areaLevels.length && areaLevels.length > 0) {
+                    return true;
+                }
+            }
+            return false;
+
+        case 'time_based':
+            return await checkTimeBadgeCriteria(criteria, userId);
+
+        case 'consecutive_days':
+            return await checkConsecutiveDays(userId, criteria.threshold);
+
+        case 'yearly_review':
+            return await checkYearlyReview(userId);
+
+        default:
+            return false;
+    }
+}
+
+// Zeitbasierte Badge-Kriterien prüfen
+async function checkTimeBadgeCriteria(criteria, userId) {
+    const now = new Date();
+
+    if (criteria.timeCheck === 'before_8am') {
+        return now.getHours() < 8;
+    }
+
+    if (criteria.timeCheck === 'weekend') {
+        // Wochenend-Bewertungen zählen
+        // Würde Activity-Log benötigen - für Phase 1 vereinfacht
+        const day = now.getDay();
+        return day === 0 || day === 6; // Sonntag oder Samstag
+    }
+
+    return false;
+}
+
+// Aufeinanderfolgende Tage prüfen
+async function checkConsecutiveDays(userId, threshold) {
+    // Würde Activity-Log benötigen
+    // Für Phase 1: Vereinfachte Implementierung
+    // TODO: Activity-Tracking für echte Implementierung
+    return false;
+}
+
+// Jahres-Review prüfen
+async function checkYearlyReview(userId) {
+    // Würde Timestamps für jede Bewertung benötigen
+    // Für Phase 1: Vereinfachte Implementierung
+    // TODO: Timestamp-Tracking für echte Implementierung
+    return false;
+}
+
+// Badge-Benachrichtigungen anzeigen
+function showBadgeNotifications() {
+    if (newlyAwardedBadges.length === 0) return;
+
+    newlyAwardedBadges.forEach((badge, index) => {
+        setTimeout(() => {
+            showBadgeNotification(badge);
+        }, index * 500); // Verzögert pro Badge
+    });
+
+    // Nach Anzeige leeren
+    setTimeout(() => {
+        newlyAwardedBadges = [];
+    }, newlyAwardedBadges.length * 500 + 5000);
+}
+
+// Einzelne Badge-Benachrichtigung
+function showBadgeNotification(badge) {
+    const notification = document.createElement('div');
+    notification.className = 'badge-notification';
+    notification.innerHTML = `
+        <div class="badge-notification-content">
+            <div class="badge-notification-emoji">${badge.emoji}</div>
+            <div class="badge-notification-text">
+                <div class="badge-notification-title">🎉 Neues Badge erhalten!</div>
+                <div class="badge-notification-name">${badge.name}</div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(notification);
+
+    // Animation triggern
+    setTimeout(() => notification.classList.add('show'), 10);
+
+    // Nach 5 Sekunden ausblenden
+    setTimeout(() => {
+        notification.classList.remove('show');
+        setTimeout(() => notification.remove(), 300);
+    }, 5000);
+}
+
+// Badge-Showcase im Dashboard rendern
+function renderBadgeShowcase() {
+    const container = document.getElementById('badgeShowcase');
+    if (!container) return;
+
+    // Wenn keine Badges, nichts anzeigen
+    if (userBadges.length === 0) {
+        container.innerHTML = '';
+        container.style.display = 'none';
+        return;
+    }
+
+    container.style.display = 'block';
+
+    // Nur die letzten 5 Badges anzeigen
+    const recentBadges = userBadges.slice(0, 5);
+
+    container.innerHTML = `
+        <div class="badge-showcase-header">
+            <h3>🏆 Auszeichnungen (${userBadges.length})</h3>
+            <button class="badge-view-all" onclick="showBadgeCollection()">Alle anzeigen</button>
+        </div>
+        <div class="badge-showcase-scroll">
+            ${recentBadges.map(userBadge => {
+                const badge = BADGE_DEFINITIONS.find(b => b.id === userBadge.badgeId);
+                if (!badge) return '';
+
+                return `
+                    <div class="badge-item" onclick="showBadgeDetail('${badge.id}')" title="${badge.description}">
+                        <div class="badge-emoji" style="background: linear-gradient(135deg, ${badge.color}22, ${badge.color}44);">
+                            ${badge.emoji}
+                        </div>
+                        <div class="badge-name">${badge.name}</div>
+                        <div class="badge-rarity badge-rarity-${badge.rarity}">
+                            ${badge.rarity === 'common' ? '🟢' : badge.rarity === 'rare' ? '🔵' : badge.rarity === 'epic' ? '🟣' : '🟡'}
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+}
+
+// Badge-Sammlung Modal anzeigen
+window.showBadgeCollection = function() {
+    const earnedBadgeIds = userBadges.map(b => b.badgeId);
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal-content badge-collection-modal">
+            <div class="modal-header">
+                <h2>🏆 Meine Auszeichnungen</h2>
+                <button class="close-btn" onclick="this.closest('.modal-overlay').remove()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="badge-collection-stats">
+                    <span>${earnedBadgeIds.length} von ${BADGE_DEFINITIONS.length} Badges erhalten</span>
+                    <div class="progress-bar-small">
+                        <div class="progress-bar-fill" style="width: ${(earnedBadgeIds.length / BADGE_DEFINITIONS.length * 100).toFixed(0)}%"></div>
+                    </div>
+                </div>
+
+                <h3>✅ Erhalten (${earnedBadgeIds.length})</h3>
+                <div class="badge-grid">
+                    ${BADGE_DEFINITIONS
+                        .filter(badge => earnedBadgeIds.includes(badge.id))
+                        .sort((a, b) => {
+                            const aDate = userBadges.find(ub => ub.badgeId === a.id)?.awardedAt;
+                            const bDate = userBadges.find(ub => ub.badgeId === b.id)?.awardedAt;
+                            return (bDate?.seconds || 0) - (aDate?.seconds || 0);
+                        })
+                        .map(badge => `
+                            <div class="badge-card earned" onclick="showBadgeDetail('${badge.id}')">
+                                <div class="badge-card-emoji" style="background: linear-gradient(135deg, ${badge.color}33, ${badge.color}66);">
+                                    ${badge.emoji}
+                                </div>
+                                <div class="badge-card-name">${badge.name}</div>
+                                <div class="badge-rarity badge-rarity-${badge.rarity}">
+                                    ${badge.rarity === 'common' ? 'Häufig' : badge.rarity === 'rare' ? 'Selten' : badge.rarity === 'epic' ? 'Episch' : 'Legendär'}
+                                </div>
+                            </div>
+                        `).join('')}
+                </div>
+
+                <h3 style="margin-top: 2rem;">🔒 Noch zu erreichen (${BADGE_DEFINITIONS.length - earnedBadgeIds.length})</h3>
+                <div class="badge-grid">
+                    ${BADGE_DEFINITIONS
+                        .filter(badge => !earnedBadgeIds.includes(badge.id))
+                        .map(badge => {
+                            const progress = getBadgeProgress(badge);
+                            return `
+                                <div class="badge-card locked" onclick="showBadgeDetail('${badge.id}')">
+                                    <div class="badge-card-emoji locked">
+                                        🔒
+                                    </div>
+                                    <div class="badge-card-name">${badge.name}</div>
+                                    <div class="badge-progress">
+                                        ${progress.text}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    setTimeout(() => modal.classList.add('show'), 10);
+};
+
+// Badge-Detail Modal anzeigen
+window.showBadgeDetail = function(badgeId) {
+    const badge = BADGE_DEFINITIONS.find(b => b.id === badgeId);
+    if (!badge) return;
+
+    const userBadge = userBadges.find(ub => ub.badgeId === badgeId);
+    const isEarned = !!userBadge;
+    const progress = !isEarned ? getBadgeProgress(badge) : null;
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal-content badge-detail-modal">
+            <button class="close-btn" onclick="this.closest('.modal-overlay').remove()">✕</button>
+            <div class="badge-detail-content">
+                <div class="badge-detail-emoji ${isEarned ? 'earned' : 'locked'}" style="background: linear-gradient(135deg, ${badge.color}33, ${badge.color}88);">
+                    ${isEarned ? badge.emoji : '🔒'}
+                </div>
+                <h2>${badge.name}</h2>
+                <p class="badge-detail-description">${badge.description}</p>
+                <div class="badge-detail-rarity badge-rarity-${badge.rarity}">
+                    ${badge.rarity === 'common' ? '🟢 Häufig' : badge.rarity === 'rare' ? '🔵 Selten' : badge.rarity === 'epic' ? '🟣 Episch' : '🟡 Legendär'}
+                </div>
+                ${isEarned ? `
+                    <div class="badge-detail-earned">
+                        ✅ Erhalten am: ${formatDate(userBadge.awardedAt)}
+                        ${userBadge.awardedBy ? `<br>📝 Verliehen von: ${userBadge.awardedBy}` : ''}
+                        ${userBadge.reason ? `<br>💬 Grund: ${userBadge.reason}` : ''}
+                    </div>
+                ` : `
+                    <div class="badge-detail-progress">
+                        <strong>Fortschritt:</strong><br>
+                        ${progress.text}
+                        ${progress.percentage !== null ? `
+                            <div class="progress-bar-small" style="margin-top: 0.5rem;">
+                                <div class="progress-bar-fill" style="width: ${progress.percentage}%"></div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `}
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    setTimeout(() => modal.classList.add('show'), 10);
+};
+
+// Badge-Fortschritt berechnen
+function getBadgeProgress(badge) {
+    if (userRole !== 'student' || !currentUser) {
+        return { text: 'Nicht verfügbar', percentage: null };
+    }
+
+    const criteria = badge.criteria;
+
+    // Progress aus aktuellem Zustand ermitteln
+    const progressRef = doc(window.db, 'progress', currentUser.uid);
+    getDoc(progressRef).then(doc => {
+        if (!doc.exists()) return { text: 'Keine Daten', percentage: 0 };
+        const ratings = doc.data().ratings || {};
+
+        // Fortschritt je nach Kriterium berechnen
+        switch (criteria.type) {
+            case 'any_rating':
+                return {
+                    text: `${Object.keys(ratings).length} / ${criteria.threshold} Bewertungen`,
+                    percentage: Math.min(100, (Object.keys(ratings).length / criteria.threshold) * 100)
+                };
+
+            case 'star_count':
+                const current = Object.values(ratings).filter(r => r >= criteria.minStars).length;
+                return {
+                    text: `${current} / ${criteria.threshold} Kompetenzen mit ${criteria.minStars}+ Sternen`,
+                    percentage: Math.min(100, (current / criteria.threshold) * 100)
+                };
+
+            case 'all_rated':
+                const total = competencyLevels.length;
+                return {
+                    text: `${Object.keys(ratings).length} / ${total} Kompetenzen bewertet`,
+                    percentage: Math.min(100, (Object.keys(ratings).length / total) * 100)
+                };
+
+            default:
+                return { text: badge.description, percentage: null };
+        }
+    });
+
+    // Fallback für synchrone Anzeige
+    return { text: badge.description, percentage: null };
+}
+
+// Datum formatieren
+function formatDate(timestamp) {
+    if (!timestamp) return 'Unbekannt';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString('de-DE', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
+}
+
 // ============= SCHÜLER-BEREICH =============
 async function showStudentArea(userData) {
     document.getElementById('loginArea').classList.add('hidden');
@@ -467,6 +1142,16 @@ async function showStudentArea(userData) {
     });
 
     unsubscribeListeners.push(unsubscribe);
+
+    // Badges laden
+    await loadUserBadges(currentUser.uid);
+
+    // Zeitbasierte Badge-Checks beim Login
+    await checkAndAwardBadges(currentUser.uid);
+    showBadgeNotifications();
+
+    // Badge-Anzeige rendern
+    renderBadgeShowcase();
 }
 
 // Kompetenzen für Schüler rendern (hierarchisch)
@@ -712,25 +1397,31 @@ async function renderStudentCompetencies(ratings) {
 // Bewertung aktualisieren (mit Cloud-Sync)
 async function updateRating(competencyId, rating) {
     if (!currentUser) return;
-    
+
     try {
         const progressRef = doc(window.db, 'progress', currentUser.uid);
         const progressDoc = await getDoc(progressRef);
-        
+
         let ratings = {};
         if (progressDoc.exists()) {
             ratings = progressDoc.data().ratings || {};
         }
-        
+
         ratings[competencyId] = rating;
-        
+
         await updateDoc(progressRef, {
             ratings: ratings,
             lastUpdated: serverTimestamp()
         });
-        
+
         showNotification('Bewertung gespeichert!', 'success');
         updateSyncStatus('saved');
+
+        // Badge-Prüfung durchführen (nur für Schüler)
+        if (userRole === 'student') {
+            await checkAndAwardBadges(currentUser.uid);
+            showBadgeNotifications();
+        }
     } catch (error) {
         console.error('Fehler beim Speichern:', error);
         showNotification('Fehler beim Speichern!', 'error');
@@ -3410,16 +4101,55 @@ window.exportProgress = async function() {
         competencies.forEach(comp => {
             const rating = ratings[comp.id] || 0;
             const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-            
+
             doc.text(`${comp.name}: ${stars}`, 20, yPos);
             yPos += 7;
-            
+
             if (yPos > 270) {
                 doc.addPage();
                 yPos = 20;
             }
         });
-        
+
+        // Badges-Sektion hinzufügen
+        if (userBadges.length > 0) {
+            yPos += 10;
+            if (yPos > 250) {
+                doc.addPage();
+                yPos = 20;
+            }
+
+            doc.setFontSize(14);
+            doc.text(`Auszeichnungen (${userBadges.length}):`, 20, yPos);
+            yPos += 10;
+
+            doc.setFontSize(10);
+            userBadges.forEach(userBadge => {
+                const badge = BADGE_DEFINITIONS.find(b => b.id === userBadge.badgeId);
+                if (!badge) return;
+
+                const rarityText = badge.rarity === 'common' ? 'Häufig' :
+                                 badge.rarity === 'rare' ? 'Selten' :
+                                 badge.rarity === 'epic' ? 'Episch' : 'Legendär';
+
+                const dateStr = userBadge.awardedAt ? formatDate(userBadge.awardedAt) : 'Unbekannt';
+
+                doc.text(`${badge.name} (${rarityText})`, 20, yPos);
+                yPos += 5;
+                doc.setFontSize(9);
+                doc.text(`  ${badge.description}`, 20, yPos);
+                yPos += 5;
+                doc.text(`  Erhalten am: ${dateStr}`, 20, yPos);
+                yPos += 8;
+                doc.setFontSize(10);
+
+                if (yPos > 270) {
+                    doc.addPage();
+                    yPos = 20;
+                }
+            });
+        }
+
         doc.save(`Kompetenzpass_${userData.name}_${new Date().toISOString().split('T')[0]}.pdf`);
         showNotification('PDF erfolgreich erstellt!', 'success');
     } catch (error) {
