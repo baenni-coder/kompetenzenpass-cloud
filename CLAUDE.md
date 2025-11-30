@@ -12,6 +12,7 @@ This is a cloud-based digital competency tracking system (Kompetenzpass) for edu
 - Students track their skill progress across various competencies
 - Teachers manage competencies, classes, and monitor student progress
 - **Teachers can bulk-create student accounts with auto-generated credentials**
+- **Teachers can bulk-assign star ratings to multiple students at once**
 - **Printable access credentials overview for easy distribution**
 - Real-time cloud synchronization across devices
 - PDF export functionality for competency reports
@@ -281,6 +282,9 @@ try {
 | **`bulkCreateStudents()`** | **app-firebase.js:3009** | **Show bulk student creation dialog** |
 | **`processBulkStudentCreation()`** | **app-firebase.js:3105** | **Process bulk student creation with credentials** |
 | **`showAccessCredentials()`** | **app-firebase.js:3249** | **Display printable credentials overview** |
+| **`showClassBulkRating()`** | **app-firebase.js:1156** | **Show bulk star rating dialog for a class** |
+| **`executeBulkRating()`** | **app-firebase.js:1590** | **Execute bulk star assignment to multiple students** |
+| **`updateStudentRating()`** | **app-firebase.js:1653** | **Update rating for a single student (used by bulk rating)** |
 
 ## UI Components
 
@@ -477,6 +481,70 @@ window.myNewFeature = async function() {
 **Security Note:**
 Passwords are only shown once during creation. They cannot be retrieved later.
 
+#### Bulk Star Rating for Classes (NEW - 2025-11-30)
+Teachers can assign star ratings to multiple students at once through the **Klassen** tab.
+
+**Workflow:**
+1. Teacher navigates to **Klassen** tab
+2. Click the green **⭐** button on a class card
+3. **Bulk-Rating Dialog** opens with three steps:
+
+   **Step 1: Select Students**
+   - Individual checkboxes for each student
+   - "✅ Alle auswählen" / "⬜ Keine auswählen" buttons
+   - Live counter shows selected students
+   - Students sorted alphabetically
+
+   **Step 2: Choose Competency/Indicator**
+   - 🔍 Search field to filter competencies
+   - Hierarchical dropdown with:
+     - Competency Areas (📱 Medien, 💻 Informatik, 🎯 Anwendungskompetenzen)
+     - Competency Groups
+     - Competency Levels (e.g., "IB.1.1.a - Description")
+     - Indicators (indented under levels: "└─ Ich kann...")
+   - Automatically filtered by class grade level
+   - Selected competency preview shown below
+
+   **Step 3: Assign Stars**
+   - Interactive 5-star rating selector
+   - Hover effects on stars
+   - Current rating displayed ("X Sterne")
+
+4. **Live Preview** shows: "X Schüler(n) werden Y Sterne zugewiesen"
+5. **"✅ Bewertungen zuweisen"** button (enabled when all selections complete)
+6. **Confirmation dialog** with details and warning about overwriting
+7. **Batch update** to Firestore (sequential for error handling)
+8. **Success notification** with count or partial success warning
+9. Dialog auto-closes on success
+
+**Technical Details:**
+- **Overwrites existing ratings** (does not add/increment)
+- Supports both **competency levels** (e.g., `level_IB-1-1-a`) and **indicators** (e.g., `indicator_xyz123`)
+- Uses `setDoc()` with `merge: true` for safe updates
+- Individual error handling per student (continues on failure)
+- No Firebase batch writes (sequential for better error reporting)
+- Grade-level filtering matches class's assigned grade
+- Search function filters by LP code and description text
+
+**Key Functions:**
+- `showClassBulkRating(classId, className)` - Opens modal
+- `loadCompetencyOptionsForBulkRating(gradeFilter)` - Loads hierarchical competencies
+- `updateBulkRatingPreview()` - Updates live preview and enables/disables button
+- `executeBulkRating()` - Performs batch updates
+- `updateStudentRating(studentId, competencyKey, rating)` - Updates single student
+
+**Use Cases:**
+- After teaching a topic (e.g., "Cybermobbing"), assign 3 stars to all students
+- Assign baseline competencies to a new class
+- Update multiple students who passed a specific assessment
+- Quick progress updates after group activities
+
+**Limitations:**
+- One competency per operation (for clarity and teacher control)
+- Sequential updates (not parallel) for error tracking
+- No "add stars" mode, only "set stars"
+- Cannot bulk-assign multiple competencies at once
+
 ## Common Tasks for AI Assistants
 
 ### Adding a New Competency Field
@@ -620,6 +688,7 @@ When making changes:
 ✅ **Bulk student creation** - Teachers can create multiple students at once (2025-11-30)
 ✅ **Student deletion** - Complete removal of student data (2025-11-30)
 ✅ **Credentials management** - Printable/PDF access credentials overview (2025-11-30)
+✅ **Bulk star rating** - Teachers can assign ratings to multiple students simultaneously (2025-11-30)
 
 ## Future Enhancement Ideas
 
