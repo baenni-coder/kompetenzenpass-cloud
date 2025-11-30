@@ -3137,6 +3137,35 @@ window.processBulkStudentCreation = async function() {
     const results = [];
     const errors = [];
 
+    // Zweite Firebase App-Instanz erstellen für Benutzer-Erstellung
+    // So bleibt der aktuelle Lehrer eingeloggt
+    const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
+    const { getAuth, createUserWithEmailAndPassword: createUser } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
+
+    let secondaryApp;
+    let secondaryAuth;
+
+    try {
+        // Verwende die gleiche Config wie die Haupt-App
+        const firebaseConfig = {
+            apiKey: "AIzaSyBfXZSQ5SPrJ-cNRRuggTSiTV_UBt14g9s",
+            authDomain: "kompetenzpass.firebaseapp.com",
+            projectId: "kompetenzpass",
+            storageBucket: "kompetenzpass.firebasestorage.app",
+            messagingSenderId: "46794299225",
+            appId: "1:46794299225:web:fa145209709de27adb9e48",
+            measurementId: "G-YNSXPTK0PH"
+        };
+
+        secondaryApp = initializeApp(firebaseConfig, 'Secondary');
+        secondaryAuth = getAuth(secondaryApp);
+    } catch (error) {
+        console.error('Fehler beim Initialisieren der sekundären App:', error);
+        showLoading(false);
+        showNotification('Fehler bei der Initialisierung!', 'error');
+        return;
+    }
+
     for (const fullName of names) {
         try {
             // E-Mail-Adresse generieren (vorname.nachname@domain)
@@ -3153,8 +3182,8 @@ window.processBulkStudentCreation = async function() {
             // Zufälliges Passwort generieren
             const password = generatePassword(10);
 
-            // Benutzer erstellen
-            const userCredential = await createUserWithEmailAndPassword(window.auth, email, password);
+            // Benutzer mit sekundärer Auth erstellen (Lehrer bleibt eingeloggt!)
+            const userCredential = await createUser(secondaryAuth, email, password);
             const user = userCredential.user;
 
             // Benutzerdaten in Firestore speichern
@@ -3187,6 +3216,13 @@ window.processBulkStudentCreation = async function() {
                 error: error.message
             });
         }
+    }
+
+    // Sekundäre App löschen
+    try {
+        await secondaryApp.delete();
+    } catch (error) {
+        console.warn('Fehler beim Löschen der sekundären App:', error);
     }
 
     showLoading(false);
