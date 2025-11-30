@@ -1000,14 +1000,20 @@ async function loadClassesManager() {
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px;">
-                        <button onclick="editClass('${classData.id}')" 
-                                class="btn-icon" 
+                        <button onclick="showClassBulkRating('${classData.id}', '${escapeHTML(classData.name)}')"
+                                class="btn-icon"
+                                title="Bulk-Bewertung"
+                                style="background: #48bb78; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer;">
+                            ⭐
+                        </button>
+                        <button onclick="editClass('${classData.id}')"
+                                class="btn-icon"
                                 title="Bearbeiten"
                                 style="background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer;">
                             ✏️
                         </button>
-                        <button onclick="deleteClass('${classData.id}')" 
-                                class="btn-icon delete" 
+                        <button onclick="deleteClass('${classData.id}')"
+                                class="btn-icon delete"
                                 title="Löschen"
                                 style="background: #f56565; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer;">
                             🗑️
@@ -1143,6 +1149,523 @@ window.deleteClass = async function(classId) {
         showLoading(false);
     }
 };
+
+// ============= BULK-BEWERTUNG FÜR KLASSEN =============
+
+// Bulk-Rating Dialog für eine Klasse anzeigen
+window.showClassBulkRating = async function(classId, className) {
+    showLoading(true);
+
+    try {
+        // Klassendaten laden
+        const classDoc = await getDoc(doc(window.db, 'classes', classId));
+        if (!classDoc.exists()) {
+            showNotification('Klasse nicht gefunden!', 'error');
+            return;
+        }
+        const classData = classDoc.data();
+
+        // Schüler der Klasse laden
+        const studentsQuery = query(
+            collection(window.db, 'users'),
+            where('role', '==', 'student'),
+            where('class', '==', className)
+        );
+        const studentsSnapshot = await getDocs(studentsQuery);
+
+        if (studentsSnapshot.empty) {
+            showNotification('Keine Schüler in dieser Klasse gefunden!', 'info');
+            showLoading(false);
+            return;
+        }
+
+        const students = [];
+        studentsSnapshot.forEach(doc => {
+            students.push({ id: doc.id, ...doc.data() });
+        });
+
+        // Nach Name sortieren
+        students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+        // Modal erstellen
+        const modal = document.createElement('div');
+        modal.id = 'bulkRatingModal';
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            overflow-y: auto;
+            padding: 20px;
+        `;
+
+        const content = document.createElement('div');
+        content.style.cssText = `
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 800px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        `;
+
+        content.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0; color: #667eea;">⭐ Bulk-Bewertung: ${escapeHTML(className)}</h2>
+                <button onclick="closeBulkRatingModal()"
+                        style="background: #f56565; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 16px;">
+                    ✕
+                </button>
+            </div>
+
+            <!-- Schritt 1: Schüler auswählen -->
+            <div style="margin-bottom: 30px;">
+                <h3 style="color: #333; margin-bottom: 15px;">1️⃣ Schüler auswählen</h3>
+                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <button onclick="toggleAllStudentsBulk(true)"
+                            class="btn-secondary"
+                            style="padding: 8px 16px; font-size: 14px;">
+                        ✅ Alle auswählen
+                    </button>
+                    <button onclick="toggleAllStudentsBulk(false)"
+                            class="btn-secondary"
+                            style="padding: 8px 16px; font-size: 14px;">
+                        ⬜ Keine auswählen
+                    </button>
+                    <span id="selectedCountDisplay" style="margin-left: auto; padding: 8px; color: #667eea; font-weight: bold;">
+                        0 ausgewählt
+                    </span>
+                </div>
+                <div id="studentCheckboxList" style="
+                    max-height: 300px;
+                    overflow-y: auto;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 8px;
+                    padding: 15px;
+                    background: #f8f9fa;
+                ">
+                    ${students.map(student => `
+                        <label style="display: flex; align-items: center; padding: 10px; margin-bottom: 5px; background: white; border-radius: 6px; cursor: pointer; transition: background 0.2s;"
+                               onmouseover="this.style.background='#f0f4ff'"
+                               onmouseout="this.style.background='white'">
+                            <input type="checkbox"
+                                   class="student-checkbox"
+                                   data-student-id="${student.id}"
+                                   data-student-name="${escapeHTML(student.name)}"
+                                   onchange="updateBulkRatingPreview()"
+                                   style="width: 20px; height: 20px; margin-right: 10px; cursor: pointer;">
+                            <span style="flex: 1; font-size: 15px; color: #333;">
+                                ${escapeHTML(student.name)}
+                            </span>
+                        </label>
+                    `).join('')}
+                </div>
+            </div>
+
+            <!-- Schritt 2: Kompetenz/Indikator auswählen -->
+            <div style="margin-bottom: 30px;">
+                <h3 style="color: #333; margin-bottom: 15px;">2️⃣ Kompetenz/Indikator wählen</h3>
+                <input type="text"
+                       id="competencySearchInput"
+                       placeholder="🔍 Suche nach Kompetenz..."
+                       onkeyup="filterCompetencyOptions()"
+                       style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; margin-bottom: 10px;">
+                <select id="competencySelector"
+                        onchange="updateBulkRatingPreview()"
+                        style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;">
+                    <option value="">-- Bitte wählen --</option>
+                </select>
+                <div id="selectedCompetencyPreview" style="margin-top: 10px; padding: 12px; background: #f0f4ff; border-left: 4px solid #667eea; border-radius: 6px; display: none;">
+                    <!-- Wird dynamisch gefüllt -->
+                </div>
+            </div>
+
+            <!-- Schritt 3: Sterne zuweisen -->
+            <div style="margin-bottom: 30px;">
+                <h3 style="color: #333; margin-bottom: 15px;">3️⃣ Sterne zuweisen</h3>
+                <div style="display: flex; gap: 15px; align-items: center; background: #f8f9fa; padding: 20px; border-radius: 8px;">
+                    <div class="bulk-star-rating" style="display: flex; gap: 5px;">
+                        ${[1, 2, 3, 4, 5].map(num => `
+                            <span class="bulk-star"
+                                  data-rating="${num}"
+                                  onclick="setBulkRating(${num})"
+                                  style="font-size: 36px; cursor: pointer; transition: transform 0.2s; color: #ddd;"
+                                  onmouseover="this.style.transform='scale(1.2)'"
+                                  onmouseout="this.style.transform='scale(1)'">
+                                ☆
+                            </span>
+                        `).join('')}
+                    </div>
+                    <span id="starCountDisplay" style="font-size: 20px; color: #667eea; font-weight: bold;">
+                        0 Sterne
+                    </span>
+                </div>
+            </div>
+
+            <!-- Vorschau und Aktion -->
+            <div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                <div id="actionPreview" style="font-size: 15px; color: #856404;">
+                    ℹ️ Bitte wähle Schüler, Kompetenz und Sterne aus
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button onclick="closeBulkRatingModal()"
+                        class="btn-secondary"
+                        style="padding: 12px 24px;">
+                    Abbrechen
+                </button>
+                <button id="executeBulkRatingBtn"
+                        onclick="executeBulkRating()"
+                        disabled
+                        style="padding: 12px 24px; background: #48bb78; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: not-allowed; opacity: 0.5;">
+                    ✅ Bewertungen zuweisen
+                </button>
+            </div>
+        `;
+
+        modal.appendChild(content);
+        document.body.appendChild(modal);
+
+        // Kompetenzen laden
+        await loadCompetencyOptionsForBulkRating(classData.grade);
+
+        showLoading(false);
+
+    } catch (error) {
+        console.error('Fehler beim Öffnen des Bulk-Rating-Dialogs:', error);
+        showNotification('Fehler: ' + error.message, 'error');
+        showLoading(false);
+    }
+};
+
+// Modal schließen
+window.closeBulkRatingModal = function() {
+    const modal = document.getElementById('bulkRatingModal');
+    if (modal) {
+        modal.remove();
+    }
+};
+
+// Alle/Keine Schüler auswählen
+window.toggleAllStudentsBulk = function(selectAll) {
+    const checkboxes = document.querySelectorAll('.student-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = selectAll;
+    });
+    updateBulkRatingPreview();
+};
+
+// Sternebewertung setzen
+window.setBulkRating = function(rating) {
+    // Alle Sterne aktualisieren
+    const stars = document.querySelectorAll('.bulk-star');
+    stars.forEach((star, index) => {
+        if (index < rating) {
+            star.textContent = '★';
+            star.style.color = '#ffc107';
+        } else {
+            star.textContent = '☆';
+            star.style.color = '#ddd';
+        }
+    });
+
+    // Speichern
+    window.currentBulkRating = rating;
+
+    // Anzeige aktualisieren
+    const display = document.getElementById('starCountDisplay');
+    if (display) {
+        display.textContent = `${rating} ${rating === 1 ? 'Stern' : 'Sterne'}`;
+    }
+
+    updateBulkRatingPreview();
+};
+
+// Vorschau aktualisieren
+window.updateBulkRatingPreview = function() {
+    const selectedCheckboxes = document.querySelectorAll('.student-checkbox:checked');
+    const selectedCount = selectedCheckboxes.length;
+
+    const competencySelector = document.getElementById('competencySelector');
+    const selectedCompetency = competencySelector ? competencySelector.value : '';
+    const selectedCompetencyText = competencySelector ?
+        competencySelector.options[competencySelector.selectedIndex].text : '';
+
+    const rating = window.currentBulkRating || 0;
+
+    // Anzahl-Anzeige aktualisieren
+    const countDisplay = document.getElementById('selectedCountDisplay');
+    if (countDisplay) {
+        countDisplay.textContent = `${selectedCount} ausgewählt`;
+    }
+
+    // Kompetenz-Preview aktualisieren
+    const competencyPreview = document.getElementById('selectedCompetencyPreview');
+    if (competencyPreview) {
+        if (selectedCompetency) {
+            competencyPreview.style.display = 'block';
+            competencyPreview.innerHTML = `
+                <strong>Gewählte Kompetenz:</strong><br>
+                ${escapeHTML(selectedCompetencyText)}
+            `;
+        } else {
+            competencyPreview.style.display = 'none';
+        }
+    }
+
+    // Aktions-Vorschau aktualisieren
+    const preview = document.getElementById('actionPreview');
+    const executeBtn = document.getElementById('executeBulkRatingBtn');
+
+    if (selectedCount > 0 && selectedCompetency && rating > 0) {
+        preview.innerHTML = `
+            ✅ <strong>Bereit:</strong> ${selectedCount} ${selectedCount === 1 ? 'Schüler' : 'Schülern'}
+            werden <strong>${rating} ${rating === 1 ? 'Stern' : 'Sterne'}</strong> zugewiesen
+        `;
+        preview.style.background = '#d4edda';
+        preview.style.borderColor = '#28a745';
+        preview.style.color = '#155724';
+
+        if (executeBtn) {
+            executeBtn.disabled = false;
+            executeBtn.style.cursor = 'pointer';
+            executeBtn.style.opacity = '1';
+        }
+    } else {
+        let missing = [];
+        if (selectedCount === 0) missing.push('Schüler');
+        if (!selectedCompetency) missing.push('Kompetenz');
+        if (rating === 0) missing.push('Sternebewertung');
+
+        preview.innerHTML = `ℹ️ Bitte wähle: ${missing.join(', ')}`;
+        preview.style.background = '#fff3cd';
+        preview.style.borderColor = '#ffc107';
+        preview.style.color = '#856404';
+
+        if (executeBtn) {
+            executeBtn.disabled = true;
+            executeBtn.style.cursor = 'not-allowed';
+            executeBtn.style.opacity = '0.5';
+        }
+    }
+};
+
+// Kompetenzoptionen laden (hierarchisch)
+async function loadCompetencyOptionsForBulkRating(gradeFilter = null) {
+    const selector = document.getElementById('competencySelector');
+    if (!selector) return;
+
+    try {
+        // Alle Bereiche, Gruppen, Stufen und Indikatoren laden
+        const areasSnapshot = await getDocs(collection(window.db, 'competencyAreas'));
+        const groupsSnapshot = await getDocs(collection(window.db, 'competencies'));
+        const levelsSnapshot = await getDocs(collection(window.db, 'competencyLevels'));
+
+        const areas = [];
+        areasSnapshot.forEach(doc => areas.push({ id: doc.id, ...doc.data() }));
+        areas.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+        const groups = [];
+        groupsSnapshot.forEach(doc => groups.push({ id: doc.id, ...doc.data() }));
+
+        const levels = [];
+        levelsSnapshot.forEach(doc => {
+            const levelData = { id: doc.id, ...doc.data() };
+            // Nach Klassenstufe filtern (nur wenn Filter gesetzt)
+            if (gradeFilter) {
+                const grades = levelData.grades || [];
+                if (grades.some(g =>
+                    g === gradeFilter ||
+                    g.includes(gradeFilter) ||
+                    gradeFilter.includes(g.split('.')[0])
+                )) {
+                    levels.push(levelData);
+                }
+            } else {
+                levels.push(levelData);
+            }
+        });
+
+        // HTML für Selector aufbauen
+        selector.innerHTML = '<option value="">-- Bitte wählen --</option>';
+
+        for (const area of areas) {
+            // Optgroup für Bereich
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = `${area.emoji} ${area.name}`;
+
+            // Gruppen für diesen Bereich
+            const areaGroups = groups.filter(g => g.areaId === area.id);
+            areaGroups.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+            for (const group of areaGroups) {
+                // Stufen für diese Gruppe
+                const groupLevels = levels.filter(l => l.competencyId === group.id);
+                groupLevels.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+                for (const level of groupLevels) {
+                    // Option für Kompetenzstufe selbst
+                    const option = document.createElement('option');
+                    option.value = `level_${level.id}`;
+                    option.textContent = `${level.lpCode} - ${level.description}`;
+                    option.setAttribute('data-type', 'level');
+                    option.setAttribute('data-search', `${level.lpCode} ${level.description}`.toLowerCase());
+                    optgroup.appendChild(option);
+
+                    // Indikatoren für diese Stufe laden
+                    const indicators = await loadIndicators(level.id);
+                    if (indicators.length > 0) {
+                        for (const indicator of indicators) {
+                            const indOption = document.createElement('option');
+                            indOption.value = `indicator_${indicator.id}`;
+                            indOption.textContent = `  └─ ${indicator.text}`;
+                            indOption.setAttribute('data-type', 'indicator');
+                            indOption.setAttribute('data-search', `${level.lpCode} ${indicator.text}`.toLowerCase());
+                            indOption.style.paddingLeft = '20px';
+                            indOption.style.fontSize = '13px';
+                            indOption.style.color = '#666';
+                            optgroup.appendChild(indOption);
+                        }
+                    }
+                }
+            }
+
+            if (optgroup.children.length > 0) {
+                selector.appendChild(optgroup);
+            }
+        }
+
+        // Alle Optionen für Suche speichern
+        window.allCompetencyOptions = Array.from(selector.querySelectorAll('option'));
+
+    } catch (error) {
+        console.error('Fehler beim Laden der Kompetenzen:', error);
+        selector.innerHTML = '<option value="">Fehler beim Laden</option>';
+    }
+}
+
+// Kompetenz-Suche filtern
+window.filterCompetencyOptions = function() {
+    const searchInput = document.getElementById('competencySearchInput');
+    const selector = document.getElementById('competencySelector');
+
+    if (!searchInput || !selector || !window.allCompetencyOptions) return;
+
+    const searchTerm = searchInput.value.toLowerCase().trim();
+
+    if (searchTerm === '') {
+        // Alle anzeigen
+        window.allCompetencyOptions.forEach(option => {
+            option.style.display = '';
+        });
+        return;
+    }
+
+    // Filtern
+    window.allCompetencyOptions.forEach(option => {
+        if (option.value === '') {
+            option.style.display = '';
+            return;
+        }
+
+        const searchText = option.getAttribute('data-search') || option.textContent.toLowerCase();
+        if (searchText.includes(searchTerm)) {
+            option.style.display = '';
+        } else {
+            option.style.display = 'none';
+        }
+    });
+};
+
+// Bulk-Rating ausführen
+window.executeBulkRating = async function() {
+    const selectedCheckboxes = document.querySelectorAll('.student-checkbox:checked');
+    const competencySelector = document.getElementById('competencySelector');
+    const selectedCompetency = competencySelector ? competencySelector.value : '';
+    const rating = window.currentBulkRating || 0;
+
+    if (selectedCheckboxes.length === 0 || !selectedCompetency || rating === 0) {
+        showNotification('Bitte fülle alle Felder aus!', 'error');
+        return;
+    }
+
+    // Bestätigung
+    const studentNames = Array.from(selectedCheckboxes)
+        .map(cb => cb.getAttribute('data-student-name'))
+        .join(', ');
+
+    const competencyText = competencySelector.options[competencySelector.selectedIndex].text;
+
+    const confirmMsg = `Möchtest du wirklich ${selectedCheckboxes.length} Schüler(n) ${rating} Sterne zuweisen?\n\n` +
+        `Kompetenz: ${competencyText}\n\n` +
+        `Schüler: ${studentNames}\n\n` +
+        `⚠️ Bestehende Bewertungen werden überschrieben!`;
+
+    if (!confirm(confirmMsg)) {
+        return;
+    }
+
+    showLoading(true);
+
+    try {
+        let successCount = 0;
+        let errorCount = 0;
+
+        // Für jeden Schüler die Bewertung setzen
+        for (const checkbox of selectedCheckboxes) {
+            const studentId = checkbox.getAttribute('data-student-id');
+
+            try {
+                await updateStudentRating(studentId, selectedCompetency, rating);
+                successCount++;
+            } catch (error) {
+                console.error(`Fehler bei Schüler ${studentId}:`, error);
+                errorCount++;
+            }
+        }
+
+        // Ergebnis anzeigen
+        if (errorCount === 0) {
+            showNotification(`✅ Erfolgreich! ${successCount} Bewertung(en) zugewiesen`, 'success');
+            closeBulkRatingModal();
+        } else {
+            showNotification(`⚠️ Teilweise erfolgreich: ${successCount} erfolgreich, ${errorCount} fehlgeschlagen`, 'warning');
+        }
+
+    } catch (error) {
+        console.error('Fehler beim Bulk-Rating:', error);
+        showNotification('Fehler: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Rating für einen einzelnen Schüler aktualisieren
+async function updateStudentRating(studentId, competencyKey, rating) {
+    const progressRef = doc(window.db, 'progress', studentId);
+    const progressDoc = await getDoc(progressRef);
+
+    let ratings = {};
+    if (progressDoc.exists()) {
+        ratings = progressDoc.data().ratings || {};
+    }
+
+    ratings[competencyKey] = rating;
+
+    await setDoc(progressRef, {
+        ratings: ratings,
+        lastUpdated: serverTimestamp()
+    }, { merge: true });
+}
 
 // ============= BERICHTE-FUNKTION =============
 
