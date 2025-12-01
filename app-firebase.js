@@ -4451,59 +4451,108 @@ window.exportProgress = async function() {
         pdfDoc.text('Meine Kompetenzen:', 20, yPos);
         yPos += 10;
 
-        pdfDoc.setFontSize(10);
+        pdfDoc.setFontSize(9);
+        const pageWidth = pdfDoc.internal.pageSize.getWidth();
+        const maxTextWidth = pageWidth - 40; // 20mm Rand links + rechts
+
         competencyLevels.forEach(level => {
             const levelKey = `level_${level.id}`;
             const rating = ratings[levelKey] || 0;
             const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
 
-            // LP Code + Beschreibung
-            const text = `${level.lpCode} - ${level.description}`;
-            pdfDoc.text(`${text}: ${stars}`, 20, yPos);
-            yPos += 7;
+            // LP Code fett
+            pdfDoc.setFont(undefined, 'bold');
+            pdfDoc.text(`${level.lpCode}:`, 20, yPos);
+            yPos += 5;
 
-            if (yPos > 270) {
+            // Beschreibung mit Zeilenumbruch
+            pdfDoc.setFont(undefined, 'normal');
+            const wrappedText = pdfDoc.splitTextToSize(level.description, maxTextWidth - 10);
+            wrappedText.forEach(line => {
+                if (yPos > 270) {
+                    pdfDoc.addPage();
+                    yPos = 20;
+                }
+                pdfDoc.text(line, 25, yPos);
+                yPos += 4;
+            });
+
+            // Sterne
+            pdfDoc.setFontSize(11);
+            pdfDoc.text(stars, 25, yPos);
+            yPos += 7;
+            pdfDoc.setFontSize(9);
+
+            // Seitenwechsel prüfen
+            if (yPos > 265) {
                 pdfDoc.addPage();
                 yPos = 20;
             }
         });
 
-        // Badges-Sektion hinzufügen
+        // Badges-Sektion mit grafischer Darstellung
         if (userBadges.length > 0) {
             yPos += 10;
-            if (yPos > 250) {
+            if (yPos > 240) {
                 pdfDoc.addPage();
                 yPos = 20;
             }
 
             pdfDoc.setFontSize(14);
-            pdfDoc.text(`Auszeichnungen (${userBadges.length}):`, 20, yPos);
+            pdfDoc.setFont(undefined, 'bold');
+            pdfDoc.text(`🏆 Auszeichnungen (${userBadges.length}):`, 20, yPos);
             yPos += 10;
 
-            pdfDoc.setFontSize(10);
+            pdfDoc.setFont(undefined, 'normal');
             userBadges.forEach(userBadge => {
                 const badge = BADGE_DEFINITIONS.find(b => b.id === userBadge.badgeId);
                 if (!badge) return;
 
-                const rarityText = badge.rarity === 'common' ? 'Häufig' :
-                                 badge.rarity === 'rare' ? 'Selten' :
-                                 badge.rarity === 'epic' ? 'Episch' : 'Legendär';
-
-                const dateStr = userBadge.awardedAt ? formatDate(userBadge.awardedAt) : 'Unbekannt';
-
-                pdfDoc.text(`${badge.name} (${rarityText})`, 20, yPos);
-                yPos += 5;
-                pdfDoc.setFontSize(9);
-                pdfDoc.text(`  ${badge.description}`, 20, yPos);
-                yPos += 5;
-                pdfDoc.text(`  Erhalten am: ${dateStr}`, 20, yPos);
-                yPos += 8;
-                pdfDoc.setFontSize(10);
-
-                if (yPos > 270) {
+                // Seitenwechsel prüfen (Badge braucht mindestens 35mm)
+                if (yPos > 240) {
                     pdfDoc.addPage();
                     yPos = 20;
                 }
+
+                // Rarity Farben (RGB)
+                const rarityColors = {
+                    common: [212, 237, 218],      // Grün
+                    rare: [204, 229, 255],        // Blau
+                    epic: [226, 213, 241],        // Lila
+                    legendary: [255, 243, 205]    // Gold
+                };
+                const bgColor = rarityColors[badge.rarity] || [240, 240, 240];
+
+                // Farbiger Hintergrund-Box
+                pdfDoc.setFillColor(...bgColor);
+                pdfDoc.roundedRect(20, yPos - 3, pageWidth - 40, 28, 2, 2, 'F');
+
+                // Emoji (groß)
+                pdfDoc.setFontSize(20);
+                pdfDoc.text(badge.emoji, 25, yPos + 7);
+
+                // Badge Name
+                pdfDoc.setFontSize(11);
+                pdfDoc.setFont(undefined, 'bold');
+                const rarityText = badge.rarity === 'common' ? 'Häufig' :
+                                 badge.rarity === 'rare' ? 'Selten' :
+                                 badge.rarity === 'epic' ? 'Episch' : 'Legendär';
+                pdfDoc.text(`${badge.name} (${rarityText})`, 40, yPos + 5);
+
+                // Badge Beschreibung
+                pdfDoc.setFontSize(9);
+                pdfDoc.setFont(undefined, 'normal');
+                const badgeDesc = pdfDoc.splitTextToSize(badge.description, maxTextWidth - 30);
+                pdfDoc.text(badgeDesc[0] || badge.description, 40, yPos + 11);
+
+                // Datum
+                const dateStr = userBadge.awardedAt ? formatDate(userBadge.awardedAt) : 'Unbekannt';
+                pdfDoc.setFontSize(8);
+                pdfDoc.setTextColor(100, 100, 100);
+                pdfDoc.text(`Erhalten: ${dateStr}`, 40, yPos + 17);
+                pdfDoc.setTextColor(0, 0, 0); // Zurück zu Schwarz
+
+                yPos += 33;
             });
         }
 
