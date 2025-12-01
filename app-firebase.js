@@ -4434,33 +4434,33 @@ window.exportProgress = async function() {
         
         // PDF generieren
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
-        
+        const pdfDoc = new jsPDF();
+
         // Titel
-        doc.setFontSize(20);
-        doc.text('Digitaler Kompetenzpass', 20, 20);
-        
-        doc.setFontSize(12);
-        doc.text(`Name: ${userData.name}`, 20, 35);
-        doc.text(`Klasse: ${userData.class}`, 20, 42);
-        doc.text(`Datum: ${new Date().toLocaleDateString('de-DE')}`, 20, 49);
-        
+        pdfDoc.setFontSize(20);
+        pdfDoc.text('Digitaler Kompetenzpass', 20, 20);
+
+        pdfDoc.setFontSize(12);
+        pdfDoc.text(`Name: ${userData.name}`, 20, 35);
+        pdfDoc.text(`Klasse: ${userData.class}`, 20, 42);
+        pdfDoc.text(`Datum: ${new Date().toLocaleDateString('de-DE')}`, 20, 49);
+
         // Kompetenzen
         let yPos = 65;
-        doc.setFontSize(14);
-        doc.text('Meine Kompetenzen:', 20, yPos);
+        pdfDoc.setFontSize(14);
+        pdfDoc.text('Meine Kompetenzen:', 20, yPos);
         yPos += 10;
-        
-        doc.setFontSize(10);
+
+        pdfDoc.setFontSize(10);
         competencies.forEach(comp => {
             const rating = ratings[comp.id] || 0;
             const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
 
-            doc.text(`${comp.name}: ${stars}`, 20, yPos);
+            pdfDoc.text(`${comp.name}: ${stars}`, 20, yPos);
             yPos += 7;
 
             if (yPos > 270) {
-                doc.addPage();
+                pdfDoc.addPage();
                 yPos = 20;
             }
         });
@@ -4469,15 +4469,15 @@ window.exportProgress = async function() {
         if (userBadges.length > 0) {
             yPos += 10;
             if (yPos > 250) {
-                doc.addPage();
+                pdfDoc.addPage();
                 yPos = 20;
             }
 
-            doc.setFontSize(14);
-            doc.text(`Auszeichnungen (${userBadges.length}):`, 20, yPos);
+            pdfDoc.setFontSize(14);
+            pdfDoc.text(`Auszeichnungen (${userBadges.length}):`, 20, yPos);
             yPos += 10;
 
-            doc.setFontSize(10);
+            pdfDoc.setFontSize(10);
             userBadges.forEach(userBadge => {
                 const badge = BADGE_DEFINITIONS.find(b => b.id === userBadge.badgeId);
                 if (!badge) return;
@@ -4488,23 +4488,23 @@ window.exportProgress = async function() {
 
                 const dateStr = userBadge.awardedAt ? formatDate(userBadge.awardedAt) : 'Unbekannt';
 
-                doc.text(`${badge.name} (${rarityText})`, 20, yPos);
+                pdfDoc.text(`${badge.name} (${rarityText})`, 20, yPos);
                 yPos += 5;
-                doc.setFontSize(9);
-                doc.text(`  ${badge.description}`, 20, yPos);
+                pdfDoc.setFontSize(9);
+                pdfDoc.text(`  ${badge.description}`, 20, yPos);
                 yPos += 5;
-                doc.text(`  Erhalten am: ${dateStr}`, 20, yPos);
+                pdfDoc.text(`  Erhalten am: ${dateStr}`, 20, yPos);
                 yPos += 8;
-                doc.setFontSize(10);
+                pdfDoc.setFontSize(10);
 
                 if (yPos > 270) {
-                    doc.addPage();
+                    pdfDoc.addPage();
                     yPos = 20;
                 }
             });
         }
 
-        doc.save(`Kompetenzpass_${userData.name}_${new Date().toISOString().split('T')[0]}.pdf`);
+        pdfDoc.save(`Kompetenzpass_${userData.name}_${new Date().toISOString().split('T')[0]}.pdf`);
         showNotification('PDF erfolgreich erstellt!', 'success');
     } catch (error) {
         console.error('Fehler beim Export:', error);
