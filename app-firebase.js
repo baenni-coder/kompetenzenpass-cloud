@@ -41,6 +41,7 @@ let competencyIndicators = []; // Indikatoren ("Ich kann..."-Aussagen) zu Kompet
 let unsubscribeListeners = [];
 let userBadges = []; // Badges des aktuellen Benutzers
 let newlyAwardedBadges = []; // Kürzlich erhaltene Badges (für Benachrichtigungen)
+let allBadges = []; // Kombination aus automatischen und Custom Badges
 
 // ============= KONSTANTEN =============
 const MAX_RATING = 5; // Maximale Anzahl Sterne
@@ -634,6 +635,51 @@ async function createDefaultCompetencies() {
 // ============= BADGE MANAGEMENT =============
 
 // Badges des Benutzers laden
+// Alle Badge-Definitionen laden (automatisch + custom)
+async function loadAllBadges() {
+    try {
+        // Start mit automatischen Badges
+        allBadges = [...BADGE_DEFINITIONS];
+
+        // Custom Badges aus Firestore laden
+        const customBadgesSnapshot = await getDocs(collection(window.db, 'customBadges'));
+        customBadgesSnapshot.forEach(doc => {
+            allBadges.push({
+                id: doc.id,
+                ...doc.data()
+            });
+        });
+
+        return allBadges;
+    } catch (error) {
+        console.error('Fehler beim Laden aller Badges:', error);
+        return BADGE_DEFINITIONS; // Fallback zu automatischen Badges
+    }
+}
+
+// Badge nach ID finden (automatisch oder custom)
+async function getBadgeById(badgeId) {
+    // Zuerst in bereits geladenen Badges suchen
+    let badge = allBadges.find(b => b.id === badgeId);
+    if (badge) return badge;
+
+    // Fallback: Automatische Badges durchsuchen
+    badge = BADGE_DEFINITIONS.find(b => b.id === badgeId);
+    if (badge) return badge;
+
+    // Fallback: Custom Badge aus Firestore laden
+    try {
+        const customBadgeDoc = await getDoc(doc(window.db, 'customBadges', badgeId));
+        if (customBadgeDoc.exists()) {
+            return { id: customBadgeDoc.id, ...customBadgeDoc.data() };
+        }
+    } catch (error) {
+        console.error('Fehler beim Laden des Custom Badge:', error);
+    }
+
+    return null;
+}
+
 async function loadUserBadges(userId) {
     try {
         const badgesQuery = query(
@@ -684,7 +730,7 @@ async function awardBadge(userId, badgeId, awardedBy = null, reason = null) {
         await setDoc(doc(collection(window.db, 'userBadges')), badgeData);
 
         // Badge Definition finden
-        const badgeDef = BADGE_DEFINITIONS.find(b => b.id === badgeId);
+        const badgeDef = allBadges.find(b => b.id === badgeId);
 
         // Zu neu erhaltenen Badges hinzufügen (für Benachrichtigung)
         if (badgeDef) {
@@ -918,7 +964,7 @@ function renderBadgeShowcase() {
         </div>
         <div class="badge-showcase-scroll">
             ${recentBadges.map(userBadge => {
-                const badge = BADGE_DEFINITIONS.find(b => b.id === userBadge.badgeId);
+                const badge = allBadges.find(b => b.id === userBadge.badgeId);
                 if (!badge) return '';
 
                 return `
@@ -1008,7 +1054,7 @@ window.showBadgeCollection = function() {
 
 // Badge-Detail Modal anzeigen
 window.showBadgeDetail = function(badgeId) {
-    const badge = BADGE_DEFINITIONS.find(b => b.id === badgeId);
+    const badge = allBadges.find(b => b.id === badgeId);
     if (!badge) return;
 
     const userBadge = userBadges.find(ub => ub.badgeId === badgeId);
@@ -1258,7 +1304,7 @@ async function loadRecentBadgeAwards() {
             const userData = userDoc.data();
 
             // Badge-Daten aus Definitionen oder Custom-Badges holen
-            let badgeData = BADGE_DEFINITIONS.find(b => b.id === data.badgeId);
+            let badgeData = allBadges.find(b => b.id === data.badgeId);
 
             if (!badgeData) {
                 try {
@@ -1493,6 +1539,9 @@ async function showStudentArea(userData) {
     });
 
     unsubscribeListeners.push(unsubscribe);
+
+    // Alle Badge-Definitionen laden (automatisch + custom)
+    await loadAllBadges();
 
     // Badges laden
     await loadUserBadges(currentUser.uid);
@@ -4420,18 +4469,24 @@ window.exportProgress = async function() {
     if (!currentUser || userRole !== 'student') return;
     
     try {
+        // Alle Badges laden (für Custom Badges im PDF)
+        await loadAllBadges();
+
         // Aktuelle Bewertungen holen
         const progressDoc = await getDoc(doc(window.db, 'progress', currentUser.uid));
         const userDoc = await getDoc(doc(window.db, 'users', currentUser.uid));
-        
+
         if (!progressDoc.exists() || !userDoc.exists()) {
             showNotification('Keine Daten zum Exportieren!', 'error');
             return;
         }
-        
+
         const ratings = progressDoc.data().ratings || {};
         const userData = userDoc.data();
-        
+
+        // Kompetenzen sortieren (nach order)
+        const sortedLevels = [...competencyLevels].sort((a, b) => (a.order || 0) - (b.order || 0));
+
         // PDF generieren
         const { jsPDF } = window.jspdf;
         const pdfDoc = new jsPDF();
@@ -4455,7 +4510,7 @@ window.exportProgress = async function() {
         const pageWidth = pdfDoc.internal.pageSize.getWidth();
         const maxTextWidth = pageWidth - 40; // 20mm Rand links + rechts
 
-        competencyLevels.forEach(level => {
+        sortedLevels.forEach(level => {
             const levelKey = `level_${level.id}`;
             const rating = ratings[levelKey] || 0;
 
@@ -4527,7 +4582,7 @@ window.exportProgress = async function() {
 
             pdfDoc.setFont(undefined, 'normal');
             userBadges.forEach(userBadge => {
-                const badge = BADGE_DEFINITIONS.find(b => b.id === userBadge.badgeId);
+                const badge = allBadges.find(b => b.id === userBadge.badgeId);
                 if (!badge) return;
 
                 // Seitenwechsel prüfen (Badge braucht mindestens 35mm)
