@@ -5145,12 +5145,14 @@ window.exportProgress = async function() {
         // Debug: Erste 3 Levels
         sortedLevels.slice(0, 3).forEach(level => {
             const levelKey = `level_${level.id}`;
-            console.log(`Level: ${level.lpCode}, Key: ${levelKey}, Rating: ${ratings[levelKey] || 0}`);
+            const rating = ratings[levelKey] || ratings[level.id] || 0;
+            console.log(`Level: ${level.lpCode}, ID: ${level.id}, Keys: [${levelKey}, ${level.id}], Rating: ${rating}`);
         });
 
         sortedLevels.forEach(level => {
             const levelKey = `level_${level.id}`;
-            const rating = ratings[levelKey] || 0;
+            // Beide Formate unterstützen (mit und ohne "level_" Präfix)
+            const rating = ratings[levelKey] || ratings[level.id] || 0;
 
             // LP Code fett
             pdfDoc.setFont(undefined, 'bold');
