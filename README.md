@@ -25,6 +25,7 @@ Ein cloud-basiertes System zur Erfassung und Verfolgung von Kompetenzen im Bildu
 - 🔑 **Automatische Zugangsdaten** - Sichere Passwörter & E-Mail-Generierung
 - 🖨️ **Druckbare Übersicht** - Zugangsdaten als Liste oder PDF exportieren
 - 🗑️ **Schüler löschen** - Vollständige Datenlöschung inkl. Artefakte
+- ⭐ **Bulk-Bewertung** - Mehreren Schülern gleichzeitig Sterne zuweisen (2025-11-30)
 - 🏆 **Badge-Verwaltung** - Komplettes Badge-Management-System (NEU 2025-12-01)
   - Eigene Badges erstellen (Name, Emoji, Seltenheit, Farbe)
   - Badges manuell an Schüler verleihen (mit Begründung)
@@ -171,15 +172,17 @@ Ausführliche Dokumentation für Entwickler: siehe **CLAUDE.md**
   - 16 automatische Badges (Meilensteine, Bereichs-Experten, Zeitbasiert)
   - Lehrer können eigene Badges erstellen
   - Manuelle Badge-Vergabe mit Begründung
-  - Badge-Showcase im Schüler-Dashboard
+  - Badge-Showcase im Schüler-Dashboard (immer sichtbar)
   - Animierte Badge-Benachrichtigungen
   - Rarity-System (Common, Rare, Epic, Legendary)
+  - PDF-Export inkl. Badges mit geometrischen Icons (Unicode-Workaround)
 
-### 2025-11-30 - Schülerverwaltung
+### 2025-11-30 - Schülerverwaltung & Bulk-Bewertung
 - ✨ **Bulk-Import** für Schüler
 - 🔑 **Automatische Passwort-Generierung**
 - 🖨️ **Druckbare Zugangsdaten-Übersicht**
 - 🗑️ **Schüler löschen** mit vollständiger Datenbereinigung
+- ⭐ **Bulk-Bewertung** - Mehreren Schülern gleichzeitig Sterne zuweisen
 
 ## 🔮 Future Ideas
 

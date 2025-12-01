@@ -166,6 +166,7 @@ kompetenzenpass-cloud/
   badgeId: string,        // Reference to badge (from BADGE_DEFINITIONS or customBadges)
   awardedAt: timestamp,   // When badge was awarded
   awardedBy: string,      // Optional: Teacher UID who manually awarded it
+  awardedByName: string,  // Optional: Teacher name (stored directly to avoid permissions issues)
   reason: string,         // Optional: Reason for manual award
   notified: boolean       // Whether student was notified
 }
@@ -176,6 +177,7 @@ kompetenzenpass-cloud/
 - Teachers can manually award custom badges with optional reason
 - Each user can only receive each badge once
 - Badges include emojis, rarity levels, and colors
+- Teacher name is stored directly in badge to avoid Firestore permissions issues
 
 #### `customBadges` Collection (NEW - Teacher-Created Badges)
 ```javascript
@@ -265,6 +267,267 @@ kompetenzenpass-cloud/
 
 **Data Source:** Official curriculum from Lehrplan Informatik & Medien
 
+## Badge & Achievement System (NEW - 2025-12-01)
+
+The app features a comprehensive gamification system with automatic and custom badges to motivate students.
+
+### Badge Categories
+
+**16 Automatic Badges** organized into 4 categories:
+
+1. **🎯 Milestones** (General Progress)
+   - 🌟 **Erste Schritte** (Common) - First competency rated
+   - 🚀 **Aufsteiger** (Rare) - 10 competencies with 3+ stars
+   - 💎 **Experte** (Epic) - 20 competencies with 4+ stars
+   - 👑 **Meister** (Legendary) - 30 competencies with 5 stars
+   - ⭐ **Fleissig** (Rare) - 50 competencies rated (any level)
+   - 🎖️ **Engagiert** (Epic) - 100 competencies rated
+
+2. **📱 Area Experts** (Competency Areas)
+   - 📱 **Medien-Profi** (Rare) - 5 media competencies with 4+ stars
+   - 💻 **Informatik-Held** (Rare) - 5 computer science competencies with 4+ stars
+   - 🎯 **Anwendungs-Champion** (Rare) - 5 application competencies with 4+ stars
+
+3. **⏱️ Time-based** (Usage Patterns)
+   - 🎉 **Pionier** (Common) - Account created (awarded on first rating)
+   - 🔥 **Durchstarter** (Rare) - Active for 7 days
+   - 💪 **Beharrlich** (Epic) - Active for 30 days
+   - 🏆 **Veteran** (Legendary) - Active for 365 days
+
+4. **🌟 Special** (Custom Awards)
+   - 🎓 **Vollständig** (Epic) - All competencies rated (any level)
+   - ✨ **Perfektionist** (Legendary) - All competencies with 4+ stars
+   - 🎨 **Custom Badges** - Unlimited teacher-created badges
+
+### Automatic Badge Awards
+
+**Trigger Points:**
+- After each rating update: `checkAndAwardBadges()` is called
+- Evaluates all 16 automatic badge criteria
+- Awards badges if criteria newly met
+- Prevents duplicate awards (checks existing badges)
+- Shows animated notification for new badges
+
+**Criteria Checking:**
+```javascript
+// Examples from checkBadgeCriteria()
+case 'first-steps': return ratedCount >= 1;
+case 'rising-star': return ratings3Plus >= 10;
+case 'expert': return ratings4Plus >= 20;
+case 'master': return ratings5 >= 30;
+case 'media-pro': return mediaRatings4Plus >= 5;
+```
+
+### Badge UI Components
+
+**1. Badge Showcase (Student Dashboard)**
+- Always visible section showing earned badges
+- First 3 badges displayed with full details
+- "+X weitere" counter if more than 3
+- "🎖️ Alle anzeigen" button opens full collection
+- Animated slide-in on page load
+- Empty state message if no badges yet
+
+**2. Badge Collection Modal**
+- Full-screen modal with all badges
+- Tabs: "Erhalten" (Earned) and "Gesperrt" (Locked)
+- Earned badges show award date and teacher (if manually awarded)
+- Locked badges show criteria and progress
+- Rarity indicators with colors
+- Click badge for detail view
+
+**3. Badge Detail View**
+- Large badge icon with rarity color
+- Complete description
+- Award details (date, teacher, reason)
+- Progress toward locked badges
+- Close button returns to collection
+
+**4. Badge Notifications**
+- Animated toast notification
+- Badge emoji + name
+- "Neues Abzeichen erhalten!" message
+- 5-second auto-dismiss
+- Slide-in from right
+
+### Teacher Badge Management
+
+**Features:**
+1. **View All Badges** - See automatic + custom badges
+2. **Award Badge** - Manually give any badge to any student with optional reason
+3. **Create Custom Badge**
+   - Name, description, emoji
+   - Rarity level (common/rare/epic/legendary)
+   - Auto-assigned color based on rarity
+4. **Delete Custom Badge** - Remove teacher-created badges
+
+**Manual Award Process:**
+```javascript
+// Teacher can award any badge (auto or custom)
+executeAwardBadge(studentId, badgeId, reason)
+  -> awardBadge(userId, badge, teacherId, reason)
+  -> Stores: awardedBy, awardedByName, reason
+```
+
+### PDF Export with Badges
+
+**Implementation Details:**
+The PDF export includes a graphical badge showcase but faced Unicode limitations:
+
+**Problem:** jsPDF has very limited Unicode support
+- Star characters (★☆) rendered as "&&&&&"
+- Badge emojis rendered as "Ø<ß"
+- Even `String.fromCharCode()` failed
+
+**Solution:** Geometric drawing with jsPDF primitives
+```javascript
+// Star ratings: Filled/empty squares
+pdfDoc.setFillColor(255, 215, 0); // Gold
+pdfDoc.rect(starX, yPos - 3, 4, 4, 'F'); // Filled square
+
+pdfDoc.setDrawColor(200, 200, 200); // Gray
+pdfDoc.rect(starX, yPos - 3, 4, 4, 'D'); // Empty square
+
+// Badge icons: Colored circles
+pdfDoc.setFillColor(...borderColor); // Rarity color
+pdfDoc.circle(30, yPos + 8, 5, 'F'); // Outer circle
+
+pdfDoc.setFillColor(255, 255, 255); // White
+pdfDoc.circle(30, yPos + 8, 2, 'F'); // Inner highlight
+```
+
+**PDF Badge Section:**
+- "🏆 Abzeichen & Erfolge" section header
+- Each badge as a row with:
+  - Colored circle icon (rarity-based)
+  - Badge name and description
+  - Award date
+  - Teacher name (if manually awarded)
+- Text wrapping for long descriptions with `splitTextToSize()`
+- Automatic pagination if needed
+
+### Technical Implementation
+
+**Global State:**
+```javascript
+let allBadges = []; // Combined automatic + custom badges
+```
+
+**Key Functions:**
+- `loadAllBadges()` - Loads BADGE_DEFINITIONS + Firestore customBadges
+- `getBadgeById(id)` - Helper to find badge in combined array
+- `loadUserBadges(userId)` - Loads user's earned badges from Firestore
+- `checkAndAwardBadges(userId)` - Evaluates criteria and awards new badges
+- `awardBadge(userId, badge, awardedBy, reason)` - Creates userBadge document
+- `renderBadgeShowcase()` - Renders dashboard badge display
+- `showBadgeCollection()` - Opens modal with all badges
+
+**Data Denormalization:**
+To avoid Firestore permissions issues, the teacher name is stored directly in the badge:
+```javascript
+// When awarding badge, teacher has permissions to read users
+const teacherDoc = await getDoc(doc(window.db, 'users', awardedBy));
+badgeData.awardedByName = teacherDoc.data().name || 'Unbekannt';
+
+// Later, students can read badge without needing users collection access
+```
+
+**Backwards Compatibility:**
+Rating keys support both formats for historical data:
+```javascript
+// Check both "level_IB-1-1-a" and "IB-1-1-a"
+const rating = ratings[levelKey] || ratings[level.id] || 0;
+```
+
+### Modal System Implementation
+
+**CSS Architecture:**
+```css
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: none; /* Hidden by default */
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+}
+
+.modal-overlay.show {
+    display: flex; /* Show when class added */
+}
+```
+
+**JavaScript Pattern:**
+```javascript
+const overlay = document.createElement('div');
+overlay.className = 'modal-overlay';
+overlay.innerHTML = `<div class="modal-content">...</div>`;
+document.body.appendChild(overlay);
+setTimeout(() => overlay.classList.add('show'), 10); // Trigger animation
+```
+
+### Bug Fixes and Workarounds
+
+**1. Variable Name Conflict (PDF Export)**
+- **Problem:** `doc` variable conflicted with Firebase `doc()` function
+- **Fix:** Renamed jsPDF variable to `pdfDoc`
+- **Location:** `exportProgress()` function
+
+**2. Unicode Characters in PDF**
+- **Problem:** jsPDF doesn't support Unicode star/emoji characters
+- **Attempted:** `String.fromCharCode()` - still failed
+- **Solution:** Draw geometric shapes (rectangles, circles)
+
+**3. Custom Badges Not Loading**
+- **Problem:** Code only checked `BADGE_DEFINITIONS` array
+- **Fix:** Created `allBadges` combining automatic + custom
+- **Implementation:** `loadAllBadges()` merges both sources
+
+**4. Teacher Name Permissions Error**
+- **Problem:** Students can't read `/users` collection for teacher names
+- **Error:** `FirebaseError: Missing or insufficient permissions`
+- **Solution:** Store `awardedByName` directly when badge is awarded
+- **Benefit:** Teacher has permissions at award time, denormalized for later reads
+
+**5. Rating Keys Format Mismatch**
+- **Problem:** Old data stored as `IB-1-1-a`, new code searched `level_IB-1-1-a`
+- **Symptom:** All PDF ratings showed 0/5 stars
+- **Fix:** Support both formats with fallback lookup
+
+**6. PDF Competency Sorting**
+- **Problem:** Sorted by `order` property instead of LP code
+- **Fix:** Alphanumeric sort with `localeCompare()`
+```javascript
+sortedLevels.sort((a, b) =>
+  a.lpCode.localeCompare(b.lpCode, 'de', { numeric: true })
+);
+```
+
+**7. Modal Overlay Invisible**
+- **Problem:** `.modal-overlay` CSS completely missing
+- **Symptom:** Modals created in DOM but invisible, view shifted left
+- **Fix:** Added complete modal system CSS (93 lines in style.css)
+
+### Performance Notes
+
+- Badge checks run only after rating updates (not continuously)
+- All badges loaded once and cached in `allBadges` array
+- Modal HTML generated dynamically (not hidden in DOM)
+- PDF generation uses single-pass rendering
+
+### Future Enhancements
+
+Potential improvements:
+- Badge editing for teachers
+- Activity tracking for consecutive days badges
+- Badge statistics and leaderboards per class
+- Export badge collection as image
+- Push notifications for new badges (PWA)
+- Badge categories filtering in collection modal
+
 ## Code Architecture
 
 ### Global State
@@ -272,6 +535,7 @@ kompetenzenpass-cloud/
 let currentUser = null;           // Firebase user object
 let userRole = null;              // 'student' or 'teacher'
 let competencies = [];            // Cached competency list
+let allBadges = [];               // Combined automatic + custom badges
 let unsubscribeListeners = [];    // Firestore listeners to cleanup
 ```
 
@@ -330,8 +594,10 @@ try {
 | **`showClassBulkRating()`** | **app-firebase.js:1156** | **Show bulk star rating dialog for a class** |
 | **`executeBulkRating()`** | **app-firebase.js:1590** | **Execute bulk star assignment to multiple students** |
 | **`updateStudentRating()`** | **app-firebase.js:1653** | **Update rating for a single student (used by bulk rating)** |
-| **`loadUserBadges()`** | **app-firebase.js:637** | **Load all badges for a user from Firestore** |
-| **`awardBadge()`** | **app-firebase.js:659** | **Award a badge to a user (checks for duplicates)** |
+| **`loadAllBadges()`** | **app-firebase.js:639** | **Load and combine automatic + custom badges** |
+| **`getBadgeById()`** | **app-firebase.js:660** | **Helper to find badge in combined allBadges array** |
+| **`loadUserBadges()`** | **app-firebase.js:668** | **Load all badges for a user from Firestore** |
+| **`awardBadge()`** | **app-firebase.js:690** | **Award a badge to a user (checks for duplicates, stores teacher name)** |
 | **`checkAndAwardBadges()`** | **app-firebase.js:705** | **Check criteria and automatically award badges** |
 | **`checkBadgeCriteria()`** | **app-firebase.js:742** | **Check if user meets badge criteria** |
 | **`renderBadgeShowcase()`** | **app-firebase.js:889** | **Render badge showcase in student dashboard** |
