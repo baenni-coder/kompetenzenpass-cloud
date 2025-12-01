@@ -4459,11 +4459,6 @@ window.exportProgress = async function() {
             const levelKey = `level_${level.id}`;
             const rating = ratings[levelKey] || 0;
 
-            // Sterne-Darstellung (jsPDF-kompatibel mit gefüllten/leeren Kreisen)
-            const filledCircle = String.fromCharCode(9679);  // ●
-            const emptyCircle = String.fromCharCode(9675);   // ○
-            const stars = filledCircle.repeat(rating) + emptyCircle.repeat(5 - rating);
-
             // LP Code fett
             pdfDoc.setFont(undefined, 'bold');
             pdfDoc.text(`${level.lpCode}:`, 20, yPos);
@@ -4481,11 +4476,32 @@ window.exportProgress = async function() {
                 yPos += 4;
             });
 
-            // Sterne und Text-Rating
-            pdfDoc.setFontSize(10);
+            // Bewertung als gezeichnete Sterne (Quadrate)
             pdfDoc.setFont(undefined, 'bold');
-            pdfDoc.text(`${stars}  (${rating}/5)`, 25, yPos);
+            pdfDoc.setFontSize(9);
+            pdfDoc.text('Bewertung:', 25, yPos);
+
+            // Sterne zeichnen (gefüllte/leere Quadrate)
+            let starX = 50;
+            for (let i = 0; i < 5; i++) {
+                if (i < rating) {
+                    // Gefülltes Quadrat (ausgefüllt)
+                    pdfDoc.setFillColor(255, 215, 0); // Gold
+                    pdfDoc.rect(starX, yPos - 3, 4, 4, 'F');
+                } else {
+                    // Leeres Quadrat (nur Rahmen)
+                    pdfDoc.setDrawColor(200, 200, 200); // Grau
+                    pdfDoc.setLineWidth(0.3);
+                    pdfDoc.rect(starX, yPos - 3, 4, 4, 'D');
+                }
+                starX += 6;
+            }
+
+            // Numerische Anzeige
+            pdfDoc.setTextColor(0, 0, 0);
+            pdfDoc.text(`(${rating}/5)`, starX + 2, yPos);
             pdfDoc.setFont(undefined, 'normal');
+
             yPos += 7;
             pdfDoc.setFontSize(9);
 
@@ -4546,11 +4562,9 @@ window.exportProgress = async function() {
                 pdfDoc.setFillColor(...borderColor);
                 pdfDoc.circle(30, yPos + 8, 5, 'F');
 
-                // Weißes Stern-Symbol im Kreis
-                pdfDoc.setFontSize(12);
-                pdfDoc.setTextColor(255, 255, 255);
-                pdfDoc.text('*', 28.5, yPos + 11);
-                pdfDoc.setTextColor(0, 0, 0);
+                // Weißer kleiner Kreis in der Mitte (als Highlight)
+                pdfDoc.setFillColor(255, 255, 255);
+                pdfDoc.circle(30, yPos + 8, 2, 'F');
 
                 // Badge Name
                 pdfDoc.setFontSize(11);
