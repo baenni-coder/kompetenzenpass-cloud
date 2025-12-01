@@ -4458,7 +4458,11 @@ window.exportProgress = async function() {
         competencyLevels.forEach(level => {
             const levelKey = `level_${level.id}`;
             const rating = ratings[levelKey] || 0;
-            const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+
+            // Sterne-Darstellung (jsPDF-kompatibel mit gefüllten/leeren Kreisen)
+            const filledCircle = String.fromCharCode(9679);  // ●
+            const emptyCircle = String.fromCharCode(9675);   // ○
+            const stars = filledCircle.repeat(rating) + emptyCircle.repeat(5 - rating);
 
             // LP Code fett
             pdfDoc.setFont(undefined, 'bold');
@@ -4477,9 +4481,11 @@ window.exportProgress = async function() {
                 yPos += 4;
             });
 
-            // Sterne
-            pdfDoc.setFontSize(11);
-            pdfDoc.text(stars, 25, yPos);
+            // Sterne und Text-Rating
+            pdfDoc.setFontSize(10);
+            pdfDoc.setFont(undefined, 'bold');
+            pdfDoc.text(`${stars}  (${rating}/5)`, 25, yPos);
+            pdfDoc.setFont(undefined, 'normal');
             yPos += 7;
             pdfDoc.setFontSize(9);
 
@@ -4500,7 +4506,7 @@ window.exportProgress = async function() {
 
             pdfDoc.setFontSize(14);
             pdfDoc.setFont(undefined, 'bold');
-            pdfDoc.text(`🏆 Auszeichnungen (${userBadges.length}):`, 20, yPos);
+            pdfDoc.text(`Auszeichnungen (${userBadges.length}):`, 20, yPos);
             yPos += 10;
 
             pdfDoc.setFont(undefined, 'normal');
@@ -4521,15 +4527,30 @@ window.exportProgress = async function() {
                     epic: [226, 213, 241],        // Lila
                     legendary: [255, 243, 205]    // Gold
                 };
+                const borderColors = {
+                    common: [72, 187, 120],       // Dunkelgrün
+                    rare: [66, 153, 225],         // Dunkelblau
+                    epic: [139, 92, 246],         // Dunkellila
+                    legendary: [234, 179, 8]      // Dunkelgold
+                };
                 const bgColor = rarityColors[badge.rarity] || [240, 240, 240];
+                const borderColor = borderColors[badge.rarity] || [150, 150, 150];
 
-                // Farbiger Hintergrund-Box
+                // Farbiger Hintergrund-Box mit Border
                 pdfDoc.setFillColor(...bgColor);
-                pdfDoc.roundedRect(20, yPos - 3, pageWidth - 40, 28, 2, 2, 'F');
+                pdfDoc.setDrawColor(...borderColor);
+                pdfDoc.setLineWidth(0.5);
+                pdfDoc.roundedRect(20, yPos - 3, pageWidth - 40, 28, 2, 2, 'FD');
 
-                // Emoji (groß)
-                pdfDoc.setFontSize(20);
-                pdfDoc.text(badge.emoji, 25, yPos + 7);
+                // Farbiger Badge-Icon-Kreis (statt Emoji)
+                pdfDoc.setFillColor(...borderColor);
+                pdfDoc.circle(30, yPos + 8, 5, 'F');
+
+                // Weißes Stern-Symbol im Kreis
+                pdfDoc.setFontSize(12);
+                pdfDoc.setTextColor(255, 255, 255);
+                pdfDoc.text('*', 28.5, yPos + 11);
+                pdfDoc.setTextColor(0, 0, 0);
 
                 // Badge Name
                 pdfDoc.setFontSize(11);
