@@ -134,6 +134,15 @@ match /customBadges/{badgeId} {
   allow update, delete: if isTeacher() 
                          && resource.data.createdBy == request.auth.uid;
 }
+// Beispiel-Rules für competencyReviews Collection
+match /competencyReviews/{reviewId} {
+  allow read: if request.auth != null;
+  allow create: if request.auth != null && 
+                   request.resource.data.studentId == request.auth.uid;
+  allow update: if request.auth != null && 
+                   get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+}
+
 
   }
 }
