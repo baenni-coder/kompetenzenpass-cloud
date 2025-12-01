@@ -5107,8 +5107,17 @@ window.exportProgress = async function() {
         const ratings = progressDoc.data().ratings || {};
         const userData = userDoc.data();
 
-        // Kompetenzen sortieren (nach order)
-        const sortedLevels = [...competencyLevels].sort((a, b) => (a.order || 0) - (b.order || 0));
+        // Debug: Ratings ausgeben
+        console.log('PDF Export - User:', userData.name);
+        console.log('PDF Export - Anzahl Ratings:', Object.keys(ratings).length);
+        console.log('PDF Export - Ratings:', ratings);
+
+        // Kompetenzen sortieren (nach LP-Code alphanumerisch)
+        const sortedLevels = [...competencyLevels].sort((a, b) => {
+            const codeA = a.lpCode || '';
+            const codeB = b.lpCode || '';
+            return codeA.localeCompare(codeB, 'de', { numeric: true, sensitivity: 'base' });
+        });
 
         // PDF generieren
         const { jsPDF } = window.jspdf;
@@ -5132,6 +5141,12 @@ window.exportProgress = async function() {
         pdfDoc.setFontSize(9);
         const pageWidth = pdfDoc.internal.pageSize.getWidth();
         const maxTextWidth = pageWidth - 40; // 20mm Rand links + rechts
+
+        // Debug: Erste 3 Levels
+        sortedLevels.slice(0, 3).forEach(level => {
+            const levelKey = `level_${level.id}`;
+            console.log(`Level: ${level.lpCode}, Key: ${levelKey}, Rating: ${ratings[levelKey] || 0}`);
+        });
 
         sortedLevels.forEach(level => {
             const levelKey = `level_${level.id}`;
