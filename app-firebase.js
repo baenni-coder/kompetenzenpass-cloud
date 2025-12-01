@@ -680,6 +680,22 @@ async function getBadgeById(badgeId) {
     return null;
 }
 
+// Benutzername anhand der UID holen
+async function getUserNameById(userId) {
+    if (!userId) return 'Unbekannt';
+
+    try {
+        const userDoc = await getDoc(doc(window.db, 'users', userId));
+        if (userDoc.exists()) {
+            return userDoc.data().name || 'Unbekannt';
+        }
+    } catch (error) {
+        console.error('Fehler beim Laden des Benutzernamens:', error);
+    }
+
+    return 'Unbekannt';
+}
+
 async function loadUserBadges(userId) {
     try {
         const badgesQuery = query(
@@ -1078,7 +1094,7 @@ window.showBadgeDetail = function(badgeId) {
                 ${isEarned ? `
                     <div class="badge-detail-earned">
                         ✅ Erhalten am: ${formatDate(userBadge.awardedAt)}
-                        ${userBadge.awardedBy ? `<br>📝 Verliehen von: ${userBadge.awardedBy}` : ''}
+                        ${userBadge.awardedBy ? `<br>📝 Verliehen von: <span id="awardedByName-${badgeId}">Lädt...</span>` : ''}
                         ${userBadge.reason ? `<br>💬 Grund: ${userBadge.reason}` : ''}
                     </div>
                 ` : `
@@ -1098,6 +1114,16 @@ window.showBadgeDetail = function(badgeId) {
 
     document.body.appendChild(modal);
     setTimeout(() => modal.classList.add('show'), 10);
+
+    // Lehrername asynchron laden wenn Badge manuell vergeben wurde
+    if (isEarned && userBadge.awardedBy) {
+        getUserNameById(userBadge.awardedBy).then(name => {
+            const nameSpan = document.getElementById(`awardedByName-${badgeId}`);
+            if (nameSpan) {
+                nameSpan.textContent = name;
+            }
+        });
+    }
 };
 
 // Badge-Fortschritt berechnen (synchron mit bereits geladenen Daten)
