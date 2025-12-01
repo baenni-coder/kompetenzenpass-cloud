@@ -1,6 +1,6 @@
 # CLAUDE.md - Digitaler Kompetenzpass (Cloud Version)
 
-**Last Updated:** 2025-11-30
+**Last Updated:** 2025-12-01
 **Repository:** baenni-coder/kompetenzenpass-cloud
 **Language:** German (UI and comments)
 
@@ -10,12 +10,14 @@ This is a cloud-based digital competency tracking system (Kompetenzpass) for edu
 
 ### Purpose
 - Students track their skill progress across various competencies
+- **Gamification with badges & achievements system (16 automatic + unlimited custom badges)**
 - Teachers manage competencies, classes, and monitor student progress
 - **Teachers can bulk-create student accounts with auto-generated credentials**
 - **Teachers can bulk-assign star ratings to multiple students at once**
+- **Teachers can create and award custom badges to students**
 - **Printable access credentials overview for easy distribution**
 - Real-time cloud synchronization across devices
-- PDF export functionality for competency reports
+- PDF export functionality for competency reports (including badges)
 
 ## Technology Stack
 
@@ -157,6 +159,49 @@ kompetenzenpass-cloud/
 }
 ```
 
+#### `userBadges` Collection (NEW - Badge System)
+```javascript
+{
+  userId: string,         // Student UID who received the badge
+  badgeId: string,        // Reference to badge (from BADGE_DEFINITIONS or customBadges)
+  awardedAt: timestamp,   // When badge was awarded
+  awardedBy: string,      // Optional: Teacher UID who manually awarded it
+  reason: string,         // Optional: Reason for manual award
+  notified: boolean       // Whether student was notified
+}
+```
+
+**How Badges Work:**
+- Automatic badges are awarded based on criteria (e.g., "10 competencies with 3+ stars")
+- Teachers can manually award custom badges with optional reason
+- Each user can only receive each badge once
+- Badges include emojis, rarity levels, and colors
+
+#### `customBadges` Collection (NEW - Teacher-Created Badges)
+```javascript
+{
+  name: string,           // Badge name (e.g., "Kreativ-Preis")
+  description: string,    // Badge description
+  emoji: string,          // Emoji icon (e.g., "🎨")
+  rarity: string,         // "common", "rare", "epic", "legendary"
+  color: string,          // Hex color code (e.g., "#667eea")
+  type: string,           // Always "custom"
+  category: string,       // Always "teacher"
+  createdBy: string,      // Teacher UID who created it
+  createdAt: timestamp,   // Creation time
+  order: number           // Display order
+}
+```
+
+**Badge System Features:**
+- 16 pre-defined automatic badges (milestones, area experts, time-based)
+- Teachers can create unlimited custom badges
+- Badge showcase in student dashboard
+- Badge collection modal with earned/locked views
+- Animated notifications when badges are earned
+- PDF export includes badges
+- Rarity system: Common 🟢, Rare 🔵, Epic 🟣, Legendary 🟡
+
 ### Firebase Security Considerations
 
 ⚠️ **Important:** The Firebase config (including API key) is exposed in `index.html:16-24`. This is typical for client-side Firebase apps, but security rules in Firestore are critical.
@@ -285,6 +330,18 @@ try {
 | **`showClassBulkRating()`** | **app-firebase.js:1156** | **Show bulk star rating dialog for a class** |
 | **`executeBulkRating()`** | **app-firebase.js:1590** | **Execute bulk star assignment to multiple students** |
 | **`updateStudentRating()`** | **app-firebase.js:1653** | **Update rating for a single student (used by bulk rating)** |
+| **`loadUserBadges()`** | **app-firebase.js:637** | **Load all badges for a user from Firestore** |
+| **`awardBadge()`** | **app-firebase.js:659** | **Award a badge to a user (checks for duplicates)** |
+| **`checkAndAwardBadges()`** | **app-firebase.js:705** | **Check criteria and automatically award badges** |
+| **`checkBadgeCriteria()`** | **app-firebase.js:742** | **Check if user meets badge criteria** |
+| **`renderBadgeShowcase()`** | **app-firebase.js:889** | **Render badge showcase in student dashboard** |
+| **`showBadgeCollection()`** | **app-firebase.js:941** | **Show modal with all badges (earned + locked)** |
+| **`showBadgeDetail()`** | **app-firebase.js:1001** | **Show detailed view of a specific badge** |
+| **`loadBadgeManagement()`** | **app-firebase.js:1151** | **Teacher: Load badge management overview** |
+| **`loadAwardBadgeForm()`** | **app-firebase.js:1198** | **Teacher: Load form to manually award badges** |
+| **`executeAwardBadge()`** | **app-firebase.js:1284** | **Teacher: Execute manual badge award** |
+| **`createCustomBadge()`** | **app-firebase.js:1367** | **Teacher: Create a new custom badge** |
+| **`deleteCustomBadge()`** | **app-firebase.js:1421** | **Teacher: Delete a custom badge** |
 
 ## UI Components
 
@@ -689,12 +746,21 @@ When making changes:
 ✅ **Student deletion** - Complete removal of student data (2025-11-30)
 ✅ **Credentials management** - Printable/PDF access credentials overview (2025-11-30)
 ✅ **Bulk star rating** - Teachers can assign ratings to multiple students simultaneously (2025-11-30)
+✅ **Badges & Achievements System** - Complete gamification system with 16 automatic badges (2025-12-01)
+  - Automatic badge awards based on progress criteria
+  - Badge showcase in student dashboard (always visible)
+  - Badge collection modal with earned/locked views
+  - Animated badge notifications
+  - PDF export includes badges
+  - Teacher badge management tab
+  - Manual badge awarding with optional reasons
+  - Custom badge creation by teachers
+  - Rarity system (Common, Rare, Epic, Legendary)
 
 ## Future Enhancement Ideas
 
 Based on code structure:
 - Timeline/history of competency progress
-- Badges/achievements system
 - Teacher comments on student progress
 - Parent access with read-only view
 - CSV import for student lists (in addition to bulk text input)
@@ -703,6 +769,9 @@ Based on code structure:
 - Dark mode toggle
 - Password reset functionality
 - Cloud Functions for complete user deletion (including Auth)
+- Badge editing functionality for teachers
+- Activity tracking for advanced time-based badges (consecutive days, yearly reviews)
+- Badge statistics and leaderboards per class
 
 ## Debugging Tips
 
