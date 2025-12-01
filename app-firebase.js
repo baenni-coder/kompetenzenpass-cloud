@@ -19,7 +19,10 @@ import {
     deleteDoc,
     serverTimestamp,
     orderBy,
-    limit
+    limit,
+    addDoc,
+    deleteField,
+    writeBatch
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
 import {
@@ -41,6 +44,8 @@ let competencyIndicators = []; // Indikatoren ("Ich kann..."-Aussagen) zu Kompet
 let unsubscribeListeners = [];
 let userBadges = []; // Badges des aktuellen Benutzers
 let newlyAwardedBadges = []; // Kürzlich erhaltene Badges (für Benachrichtigungen)
+let pendingReviews = []; // Offene Review-Anträge (für Teacher Dashboard)
+let studentPendingReviews = {}; // Pending Reviews des aktuellen Studenten {competencyKey: reviewId}
 
 // ============= KONSTANTEN =============
 const MAX_RATING = 5; // Maximale Anzahl Sterne
@@ -1109,6 +1114,18 @@ function formatDate(timestamp) {
     });
 }
 
+function formatTimestamp(timestamp) {
+    if (!timestamp) return 'Unbekannt';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleString('de-DE', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
 // ============= LEHRER BADGE-MANAGEMENT =============
 
 // Sub-Tab Navigation für Badge-Tab
@@ -1452,6 +1469,520 @@ window.filterTeacherBadges = function() {
     loadBadgeManagement();
 };
 
+// ============= REVIEW-SYSTEM =============
+
+/**
+ * Erstellt einen Review-Antrag für eine Bewertungsänderung
+ * @param {string} competencyKey - Level ID oder Indicator ID (z.B. "level_IB-1-1-a" oder "indicator_xyz")
+ * @param {number|null} oldRating - Alte Bewertung (null bei Erstbewertung)
+ * @param {number} newRating - Neue Bewertung (1-5)
+ * @returns {Promise<string>} Review-ID
+ */
+async function submitRatingReview(competencyKey, oldRating, newRating) {
+    if (!currentUser) throw new Error('Benutzer nicht angemeldet');
+
+    // User-Daten abrufen
+    const userDoc = await getDoc(doc(window.db, 'users', currentUser.uid));
+    if (!userDoc.exists()) throw new Error('Benutzerdaten nicht gefunden');
+
+    const userData = userDoc.data();
+
+    // Kompetenz-Name ermitteln
+    let competencyName = '';
+    if (competencyKey.startsWith('indicator_')) {
+        const indicatorId = competencyKey.replace('indicator_', '');
+        const indicator = competencyIndicators.find(i => i.id === indicatorId);
+        competencyName = indicator ? indicator.text : 'Unbekannter Indikator';
+    } else {
+        const level = competencyLevels.find(l => l.id === competencyKey);
+        competencyName = level ? `${level.lpCode} - ${level.description}` : 'Unbekannte Kompetenz';
+    }
+
+    // Review-Dokument erstellen
+    const reviewRef = await addDoc(collection(window.db, 'competencyReviews'), {
+        studentId: currentUser.uid,
+        studentName: userData.name,
+        competencyKey: competencyKey,
+        competencyName: competencyName,
+        oldRating: oldRating,
+        newRating: newRating,
+        status: 'pending',
+        createdAt: serverTimestamp(),
+        reviewedAt: null,
+        reviewedBy: null,
+        rejectionReason: null,
+        classId: userData.class
+    });
+
+    // Pending-Marker im Progress-Dokument setzen
+    const progressRef = doc(window.db, 'progress', currentUser.uid);
+    await updateDoc(progressRef, {
+        [`pendingReviews.${competencyKey}`]: reviewRef.id
+    });
+
+    // Lokale Variable aktualisieren
+    studentPendingReviews[competencyKey] = reviewRef.id;
+
+    return reviewRef.id;
+}
+
+/**
+ * Lädt die pending Reviews eines Studenten
+ */
+async function loadStudentPendingReviews() {
+    if (!currentUser) return {};
+
+    try {
+        const progressDoc = await getDoc(doc(window.db, 'progress', currentUser.uid));
+        if (progressDoc.exists() && progressDoc.data().pendingReviews) {
+            return progressDoc.data().pendingReviews;
+        }
+    } catch (error) {
+        console.error('Fehler beim Laden der pending Reviews:', error);
+    }
+
+    return {};
+}
+
+/**
+ * Lädt den Status eines Review-Antrags
+ * @param {string} reviewId - Review-ID
+ * @returns {Promise<object|null>} Review-Objekt oder null
+ */
+async function getReviewStatus(reviewId) {
+    if (!reviewId) return null;
+
+    try {
+        const reviewDoc = await getDoc(doc(window.db, 'competencyReviews', reviewId));
+        if (reviewDoc.exists()) {
+            return { id: reviewDoc.id, ...reviewDoc.data() };
+        }
+    } catch (error) {
+        console.error('Fehler beim Laden des Review-Status:', error);
+    }
+
+    return null;
+}
+
+/**
+ * Lädt alle offenen Reviews für Lehrpersonen
+ * @param {string} filter - 'all', 'pending', 'approved', 'rejected'
+ * @returns {Promise<Array>} Array von Review-Objekten
+ */
+async function loadTeacherReviews(filter = 'pending') {
+    try {
+        let q;
+        if (filter === 'all') {
+            q = query(
+                collection(window.db, 'competencyReviews'),
+                orderBy('createdAt', 'desc')
+            );
+        } else {
+            q = query(
+                collection(window.db, 'competencyReviews'),
+                where('status', '==', filter),
+                orderBy('createdAt', 'desc')
+            );
+        }
+
+        const snapshot = await getDocs(q);
+        const reviews = [];
+        snapshot.forEach(doc => {
+            reviews.push({ id: doc.id, ...doc.data() });
+        });
+
+        return reviews;
+    } catch (error) {
+        console.error('Fehler beim Laden der Reviews:', error);
+        return [];
+    }
+}
+
+/**
+ * Bestätigt einen Review-Antrag und speichert die Bewertung
+ * @param {string} reviewId - Review-ID
+ * @param {object} review - Review-Objekt
+ */
+async function approveReview(reviewId, review) {
+    if (!currentUser || userRole !== 'teacher') {
+        throw new Error('Keine Berechtigung');
+    }
+
+    try {
+        const batch = writeBatch(window.db);
+
+        // 1. Review als approved markieren
+        batch.update(doc(window.db, 'competencyReviews', reviewId), {
+            status: 'approved',
+            reviewedAt: serverTimestamp(),
+            reviewedBy: currentUser.uid
+        });
+
+        // 2. Rating im Progress speichern
+        const progressRef = doc(window.db, 'progress', review.studentId);
+        batch.update(progressRef, {
+            [`ratings.${review.competencyKey}`]: review.newRating,
+            [`pendingReviews.${review.competencyKey}`]: deleteField(),
+            lastUpdated: serverTimestamp()
+        });
+
+        await batch.commit();
+
+        // 3. Badges prüfen (bei Schüler)
+        await checkAndAwardBadges(review.studentId);
+
+        showNotification('Antrag bestätigt!', 'success');
+    } catch (error) {
+        console.error('Fehler beim Bestätigen:', error);
+        throw error;
+    }
+}
+
+/**
+ * Lehnt einen Review-Antrag ab
+ * @param {string} reviewId - Review-ID
+ * @param {object} review - Review-Objekt
+ * @param {string} reason - Ablehnungsgrund
+ */
+async function rejectReview(reviewId, review, reason) {
+    if (!currentUser || userRole !== 'teacher') {
+        throw new Error('Keine Berechtigung');
+    }
+
+    try {
+        const batch = writeBatch(window.db);
+
+        // 1. Review als rejected markieren
+        batch.update(doc(window.db, 'competencyReviews', reviewId), {
+            status: 'rejected',
+            reviewedAt: serverTimestamp(),
+            reviewedBy: currentUser.uid,
+            rejectionReason: reason
+        });
+
+        // 2. Pending marker entfernen
+        const progressRef = doc(window.db, 'progress', review.studentId);
+        batch.update(progressRef, {
+            [`pendingReviews.${review.competencyKey}`]: deleteField()
+        });
+
+        await batch.commit();
+
+        showNotification('Antrag abgelehnt', 'success');
+    } catch (error) {
+        console.error('Fehler beim Ablehnen:', error);
+        throw error;
+    }
+}
+
+/**
+ * Zählt offene Review-Anträge (für Badge-Anzeige)
+ */
+async function countPendingReviews() {
+    if (userRole !== 'teacher') return 0;
+
+    try {
+        const q = query(
+            collection(window.db, 'competencyReviews'),
+            where('status', '==', 'pending')
+        );
+        const snapshot = await getDocs(q);
+        return snapshot.size;
+    } catch (error) {
+        console.error('Fehler beim Zählen der Reviews:', error);
+        return 0;
+    }
+}
+
+/**
+ * Aktualisiert das Badge mit der Anzahl offener Anträge
+ */
+async function updateReviewBadge() {
+    if (userRole !== 'teacher') return;
+
+    const count = await countPendingReviews();
+    const badge = document.getElementById('reviewsBadge');
+
+    if (badge) {
+        if (count > 0) {
+            badge.textContent = count;
+            badge.classList.remove('hidden');
+        } else {
+            badge.classList.add('hidden');
+        }
+    }
+
+    // Auch den Pending-Count im Filter aktualisieren
+    const pendingCount = document.getElementById('pendingCount');
+    if (pendingCount) {
+        pendingCount.textContent = count;
+    }
+}
+
+/**
+ * Lädt Reviews mit Filter und zeigt sie an
+ */
+window.loadReviewsWithFilter = async function(filter) {
+    showLoading(true);
+
+    try {
+        // Filter-Buttons aktualisieren
+        document.querySelectorAll('.review-filter-button').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        event.target.classList.add('active');
+
+        // Reviews laden
+        const reviews = await loadTeacherReviews(filter);
+
+        // Reviews anzeigen
+        renderReviewsList(reviews);
+
+        // Badge aktualisieren
+        await updateReviewBadge();
+    } catch (error) {
+        console.error('Fehler beim Laden der Reviews:', error);
+        showNotification('Fehler beim Laden der Anträge', 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+/**
+ * Rendert die Review-Liste
+ */
+function renderReviewsList(reviews) {
+    const container = document.getElementById('reviewsList');
+
+    if (!reviews || reviews.length === 0) {
+        container.innerHTML = `
+            <div class="review-empty-state">
+                <div class="review-empty-icon">📭</div>
+                <div class="review-empty-text">Keine Anträge gefunden</div>
+                <div class="review-empty-hint">Es gibt aktuell keine Bewertungsanträge mit diesem Status.</div>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = '';
+
+    for (const review of reviews) {
+        const card = document.createElement('div');
+        card.className = 'review-card';
+
+        const oldRating = review.oldRating || 0;
+        const newRating = review.newRating;
+        const change = newRating - oldRating;
+        const changeSymbol = change > 0 ? '→' : (change < 0 ? '↓' : '=');
+
+        let statusBadge = '';
+        if (review.status === 'pending') {
+            statusBadge = '<span style="color: #ed8936; font-weight: bold;">⏳ Offen</span>';
+        } else if (review.status === 'approved') {
+            statusBadge = '<span style="color: #48bb78; font-weight: bold;">✅ Bestätigt</span>';
+        } else if (review.status === 'rejected') {
+            statusBadge = '<span style="color: #f56565; font-weight: bold;">❌ Abgelehnt</span>';
+        }
+
+        card.innerHTML = `
+            <div class="review-card-header">
+                <div class="review-student-info">
+                    <div class="review-student-name">${escapeHTML(review.studentName)}</div>
+                    <div class="review-student-class">Klasse: ${escapeHTML(review.classId)}</div>
+                </div>
+                <div class="review-rating-change">
+                    ${oldRating} ${changeSymbol} ${newRating} ⭐
+                </div>
+            </div>
+            <div class="review-competency">
+                <div class="review-competency-name">${escapeHTML(review.competencyName)}</div>
+            </div>
+            <div class="review-meta">
+                <span>📅 ${formatTimestamp(review.createdAt)}</span>
+                <span>${statusBadge}</span>
+            </div>
+            ${review.status === 'pending' ? `
+                <div class="review-actions">
+                    <button class="btn-review-approve" onclick="event.stopPropagation(); handleApproveReview('${review.id}')">
+                        ✅ Bestätigen
+                    </button>
+                    <button class="btn-review-reject" onclick="event.stopPropagation(); handleRejectReview('${review.id}')">
+                        ❌ Ablehnen
+                    </button>
+                </div>
+            ` : ''}
+            ${review.status === 'rejected' && review.rejectionReason ? `
+                <div class="review-status rejected" style="margin-top: 15px;">
+                    <strong>Ablehnungsgrund:</strong><br>
+                    ${escapeHTML(review.rejectionReason)}
+                </div>
+            ` : ''}
+        `;
+
+        // Klick auf Card öffnet Detail-Modal
+        if (review.status === 'pending') {
+            card.style.cursor = 'pointer';
+            card.onclick = function() {
+                showReviewDetailModal(review);
+            };
+        }
+
+        container.appendChild(card);
+    }
+}
+
+/**
+ * Zeigt Detail-Modal für einen Review
+ */
+function showReviewDetailModal(review) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay show';
+    modal.onclick = function(e) {
+        if (e.target === modal) {
+            modal.remove();
+        }
+    };
+
+    const oldRating = review.oldRating || 0;
+    const newRating = review.newRating;
+
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 600px; padding: 2rem;">
+            <button class="close-btn" onclick="this.closest('.modal-overlay').remove()">✕</button>
+
+            <h2 style="color: var(--color-primary); margin-bottom: 1.5rem;">📋 Bewertungsantrag Details</h2>
+
+            <div style="background: var(--color-bg-lighter); padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                <h3 style="margin-bottom: 1rem;">Schüler</h3>
+                <p><strong>${escapeHTML(review.studentName)}</strong></p>
+                <p style="color: var(--color-text-secondary);">Klasse: ${escapeHTML(review.classId)}</p>
+            </div>
+
+            <div style="background: var(--color-bg-lighter); padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                <h3 style="margin-bottom: 1rem;">Kompetenz</h3>
+                <p>${escapeHTML(review.competencyName)}</p>
+            </div>
+
+            <div style="background: var(--color-bg-lighter); padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                <h3 style="margin-bottom: 1rem;">Bewertungsänderung</h3>
+                <div style="display: flex; align-items: center; gap: 20px; font-size: 24px; font-weight: bold;">
+                    <span>${'⭐'.repeat(oldRating)}${'☆'.repeat(5-oldRating)}</span>
+                    <span>→</span>
+                    <span>${'⭐'.repeat(newRating)}${'☆'.repeat(5-newRating)}</span>
+                </div>
+                <p style="margin-top: 1rem; color: var(--color-text-secondary);">
+                    ${oldRating === 0 ? 'Erstbewertung' : `Von ${oldRating} auf ${newRating} Sterne`}
+                </p>
+            </div>
+
+            <div style="background: var(--color-bg-lighter); padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                <p style="color: var(--color-text-secondary);">Eingereicht am: ${formatTimestamp(review.createdAt)}</p>
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn-review-approve" onclick="handleApproveReview('${review.id}'); this.closest('.modal-overlay').remove();">
+                    ✅ Bestätigen
+                </button>
+                <button class="btn-review-reject" onclick="handleRejectReview('${review.id}'); this.closest('.modal-overlay').remove();">
+                    ❌ Ablehnen
+                </button>
+                <button class="secondary" onclick="this.closest('.modal-overlay').remove()">
+                    Schließen
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+}
+
+/**
+ * Behandelt das Bestätigen eines Reviews
+ */
+window.handleApproveReview = async function(reviewId) {
+    showLoading(true);
+
+    try {
+        // Review-Daten laden
+        const reviewDoc = await getDoc(doc(window.db, 'competencyReviews', reviewId));
+        if (!reviewDoc.exists()) {
+            throw new Error('Review nicht gefunden');
+        }
+
+        const review = { id: reviewDoc.id, ...reviewDoc.data() };
+
+        // Review bestätigen
+        await approveReview(reviewId, review);
+
+        // Reviews neu laden
+        const currentFilter = document.querySelector('.review-filter-button.active');
+        const filter = currentFilter ? currentFilter.textContent.includes('Offen') ? 'pending' :
+                                      currentFilter.textContent.includes('Bestätigt') ? 'approved' :
+                                      currentFilter.textContent.includes('Abgelehnt') ? 'rejected' : 'all' : 'pending';
+
+        const reviews = await loadTeacherReviews(filter);
+        renderReviewsList(reviews);
+
+        // Badge aktualisieren
+        await updateReviewBadge();
+
+        showNotification('Antrag bestätigt!', 'success');
+    } catch (error) {
+        console.error('Fehler beim Bestätigen:', error);
+        showNotification('Fehler beim Bestätigen: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+/**
+ * Behandelt das Ablehnen eines Reviews
+ */
+window.handleRejectReview = async function(reviewId) {
+    // Ablehnungsgrund abfragen
+    const reason = prompt('Grund für die Ablehnung (wird dem Schüler angezeigt):');
+
+    if (!reason) {
+        showNotification('Ablehnung abgebrochen - Begründung erforderlich', 'info');
+        return;
+    }
+
+    showLoading(true);
+
+    try {
+        // Review-Daten laden
+        const reviewDoc = await getDoc(doc(window.db, 'competencyReviews', reviewId));
+        if (!reviewDoc.exists()) {
+            throw new Error('Review nicht gefunden');
+        }
+
+        const review = { id: reviewDoc.id, ...reviewDoc.data() };
+
+        // Review ablehnen
+        await rejectReview(reviewId, review, reason);
+
+        // Reviews neu laden
+        const currentFilter = document.querySelector('.review-filter-button.active');
+        const filter = currentFilter ? currentFilter.textContent.includes('Offen') ? 'pending' :
+                                      currentFilter.textContent.includes('Bestätigt') ? 'approved' :
+                                      currentFilter.textContent.includes('Abgelehnt') ? 'rejected' : 'all' : 'pending';
+
+        const reviews = await loadTeacherReviews(filter);
+        renderReviewsList(reviews);
+
+        // Badge aktualisieren
+        await updateReviewBadge();
+
+        showNotification('Antrag abgelehnt', 'success');
+    } catch (error) {
+        console.error('Fehler beim Ablehnen:', error);
+        showNotification('Fehler beim Ablehnen: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
 // ============= SCHÜLER-BEREICH =============
 async function showStudentArea(userData) {
     document.getElementById('loginArea').classList.add('hidden');
@@ -1480,15 +2011,21 @@ async function showStudentArea(userData) {
     // Kompetenzen nach Klassenstufe filtern
     await loadCompetencies(gradeFilter);
 
+    // Pending Reviews laden
+    studentPendingReviews = await loadStudentPendingReviews();
+
     // Fortschritt laden und Echtzeit-Updates einrichten
     const progressRef = doc(window.db, 'progress', currentUser.uid);
 
-    const unsubscribe = onSnapshot(progressRef, (doc) => {
+    const unsubscribe = onSnapshot(progressRef, async (doc) => {
         if (doc.exists()) {
             const progress = doc.data();
-            renderStudentCompetencies(progress.ratings || {});
+            // Pending Reviews aktualisieren
+            studentPendingReviews = progress.pendingReviews || {};
+            await renderStudentCompetencies(progress.ratings || {});
         } else {
-            renderStudentCompetencies({});
+            studentPendingReviews = {};
+            await renderStudentCompetencies({});
         }
     });
 
@@ -1620,8 +2157,36 @@ async function renderStudentCompetencies(ratings) {
                 const artifacts = await loadArtifacts(level.id);
                 const artifactCount = artifacts.length;
 
+                // Review-Status prüfen (nur ohne Indikatoren, da Indikatoren einzeln behandelt werden)
+                let reviewStatusHtml = '';
+                if (indicators.length === 0 && studentPendingReviews[level.id]) {
+                    const reviewId = studentPendingReviews[level.id];
+                    const review = await getReviewStatus(reviewId);
+
+                    if (review && review.status === 'pending') {
+                        reviewStatusHtml = `
+                            <div class="review-status pending">
+                                ⏳ <strong>Antrag läuft</strong> (${review.oldRating || 0} → ${review.newRating} Sterne)
+                                <br><small>Eingereicht am ${formatTimestamp(review.createdAt)}</small>
+                            </div>
+                        `;
+                    } else if (review && review.status === 'rejected') {
+                        reviewStatusHtml = `
+                            <div class="review-status rejected">
+                                ❌ <strong>Zurückgewiesen</strong>
+                                <br><small>${escapeHTML(review.rejectionReason || 'Keine Begründung angegeben')}</small>
+                            </div>
+                        `;
+                    }
+                }
+
                 const card = document.createElement('div');
                 card.className = 'competency-card';
+                if (reviewStatusHtml && reviewStatusHtml.includes('pending')) {
+                    card.style.borderColor = '#ed8936'; // Orange für pending
+                } else if (reviewStatusHtml && reviewStatusHtml.includes('rejected')) {
+                    card.style.borderColor = '#f56565'; // Rot für rejected
+                }
 
                 const cycleText = level.cycles?.join(', ') || '';
                 const gradeText = level.grades?.join(', ') || '';
@@ -1651,6 +2216,7 @@ async function renderStudentCompetencies(ratings) {
                     <div class="progress-bar">
                         <div class="progress-fill" style="width: ${rating * 20}%"></div>
                     </div>
+                    ${reviewStatusHtml}
                 `;
 
                 // Indikatoren-Bereich (falls vorhanden)
@@ -1750,32 +2316,52 @@ async function updateRating(competencyId, rating) {
     if (!currentUser) return;
 
     try {
+        // Lehrpersonen können direkt bewerten (ohne Review-System)
+        if (userRole === 'teacher') {
+            const progressRef = doc(window.db, 'progress', currentUser.uid);
+            const progressDoc = await getDoc(progressRef);
+
+            let ratings = {};
+            if (progressDoc.exists()) {
+                ratings = progressDoc.data().ratings || {};
+            }
+
+            ratings[competencyId] = rating;
+
+            await updateDoc(progressRef, {
+                ratings: ratings,
+                lastUpdated: serverTimestamp()
+            });
+
+            showNotification('Bewertung gespeichert!', 'success');
+            updateSyncStatus('saved');
+            return;
+        }
+
+        // Schüler: Review-System verwenden
         const progressRef = doc(window.db, 'progress', currentUser.uid);
         const progressDoc = await getDoc(progressRef);
 
-        let ratings = {};
+        let oldRating = null;
         if (progressDoc.exists()) {
-            ratings = progressDoc.data().ratings || {};
+            const ratings = progressDoc.data().ratings || {};
+            oldRating = ratings[competencyId] || null;
         }
 
-        ratings[competencyId] = rating;
+        // Review-Antrag erstellen
+        const reviewId = await submitRatingReview(competencyId, oldRating, rating);
 
-        await updateDoc(progressRef, {
-            ratings: ratings,
-            lastUpdated: serverTimestamp()
-        });
+        showNotification('⏳ Antrag eingereicht! Wartet auf Bestätigung der Lehrperson.', 'info');
+        updateSyncStatus('pending');
 
-        showNotification('Bewertung gespeichert!', 'success');
-        updateSyncStatus('saved');
+        // UI neu laden, um pending Status anzuzeigen
+        const progressData = await getDoc(progressRef);
+        const ratings = progressData.exists() ? (progressData.data().ratings || {}) : {};
+        await renderStudentCompetencies(ratings);
 
-        // Badge-Prüfung durchführen (nur für Schüler)
-        if (userRole === 'student') {
-            await checkAndAwardBadges(currentUser.uid);
-            showBadgeNotifications();
-        }
     } catch (error) {
-        console.error('Fehler beim Speichern:', error);
-        showNotification('Fehler beim Speichern!', 'error');
+        console.error('Fehler beim Erstellen des Antrags:', error);
+        showNotification('Fehler beim Einreichen des Antrags!', 'error');
         updateSyncStatus('error');
     }
 }
@@ -1785,12 +2371,18 @@ async function showTeacherDashboard(userData) {
     document.getElementById('loginArea').classList.add('hidden');
     document.getElementById('mainArea').classList.add('hidden');
     document.getElementById('teacherArea').classList.remove('hidden');
-    
+
     // Kompetenzen-Tab laden
     await loadCompetencyManager();
-    
+
     // Echtzeit-Updates für Schülerdaten einrichten
     setupRealtimeStudentUpdates();
+
+    // Review-Badge initialisieren
+    await updateReviewBadge();
+
+    // Review-Badge regelmäßig aktualisieren (alle 30 Sekunden)
+    setInterval(updateReviewBadge, 30000);
 }
 
 // Kompetenz-Manager für Lehrer
@@ -3970,6 +4562,9 @@ window.switchTab = function(tabId, event) {
     } else if (tabId === 'badges-tab') {
         // Badge-Verwaltung initial laden
         loadBadgeManagement();
+    } else if (tabId === 'reviews-tab') {
+        // Reviews laden (initial: pending)
+        loadReviewsWithFilter('pending');
     }
 };
 
