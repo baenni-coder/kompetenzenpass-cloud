@@ -1762,3 +1762,269 @@ button.secondary:hover {
         grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
     }
 }
+
+/* ============= REVIEW-SYSTEM STYLES ============= */
+
+/* Review Status Boxes */
+.review-status {
+    margin-top: 10px;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.5;
+    animation: slideIn 0.3s ease-out;
+}
+
+.review-status.pending {
+    background: #fef3c7;
+    border-left: 4px solid var(--color-warning);
+    color: #92400e;
+}
+
+.review-status.rejected {
+    background: #fee2e2;
+    border-left: 4px solid var(--color-error);
+    color: #991b1b;
+}
+
+.review-status.approved {
+    background: #d1fae5;
+    border-left: 4px solid var(--color-success);
+    color: #065f46;
+}
+
+.review-status strong {
+    font-weight: 600;
+}
+
+.review-status small {
+    font-size: 12px;
+    opacity: 0.9;
+}
+
+/* Review List (Teacher Dashboard) */
+.review-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.review-card {
+    background: white;
+    border: 2px solid var(--color-border-light);
+    border-radius: 12px;
+    padding: 20px;
+    transition: all 0.3s;
+    cursor: pointer;
+}
+
+.review-card:hover {
+    border-color: var(--color-primary);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+}
+
+.review-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    margin-bottom: 15px;
+    gap: 15px;
+}
+
+.review-student-info {
+    flex: 1;
+}
+
+.review-student-name {
+    font-size: 18px;
+    font-weight: bold;
+    color: var(--color-text);
+    margin-bottom: 5px;
+}
+
+.review-student-class {
+    font-size: 14px;
+    color: var(--color-text-secondary);
+}
+
+.review-rating-change {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--color-primary);
+}
+
+.review-competency {
+    background: var(--color-bg-lighter);
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+
+.review-competency-name {
+    font-size: 14px;
+    color: var(--color-text);
+    font-weight: 500;
+}
+
+.review-meta {
+    display: flex;
+    gap: 15px;
+    font-size: 13px;
+    color: var(--color-text-light);
+    margin-bottom: 15px;
+}
+
+.review-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.btn-review-approve {
+    background: var(--color-success);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-weight: 600;
+}
+
+.btn-review-approve:hover {
+    background: var(--color-success-dark);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(72, 187, 120, 0.3);
+}
+
+.btn-review-reject {
+    background: var(--color-error);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-weight: 600;
+}
+
+.btn-review-reject:hover {
+    background: #e53e3e;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(245, 101, 101, 0.3);
+}
+
+/* Review Count Badge (Tab Button) */
+.review-count-badge {
+    display: inline-block;
+    background: var(--color-error);
+    color: white;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 3px 8px;
+    border-radius: 12px;
+    margin-left: 8px;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+/* Review Filter */
+.review-filter-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.review-filter-button {
+    background: var(--color-bg-light);
+    color: var(--color-text-secondary);
+    border: 2px solid var(--color-border-light);
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-weight: 500;
+}
+
+.review-filter-button.active {
+    background: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
+}
+
+.review-filter-button:hover:not(.active) {
+    background: var(--color-bg-neutral);
+}
+
+.review-filter-button .badge-count {
+    background: rgba(255, 255, 255, 0.3);
+    padding: 2px 8px;
+    border-radius: 12px;
+    margin-left: 8px;
+    font-size: 12px;
+}
+
+/* Empty State */
+.review-empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--color-text-light);
+}
+
+.review-empty-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+    opacity: 0.5;
+}
+
+.review-empty-text {
+    font-size: 18px;
+    margin-bottom: 10px;
+}
+
+.review-empty-hint {
+    font-size: 14px;
+    font-style: italic;
+}
+
+/* Mobile Anpassungen */
+@media (max-width: 600px) {
+    .review-card-header {
+        flex-direction: column;
+    }
+
+    .review-rating-change {
+        font-size: 20px;
+    }
+
+    .review-actions {
+        flex-direction: column;
+    }
+
+    .btn-review-approve,
+    .btn-review-reject {
+        width: 100%;
+    }
+
+    .review-filter-bar {
+        flex-direction: column;
+    }
+
+    .review-filter-button {
+        width: 100%;
+    }
+}
