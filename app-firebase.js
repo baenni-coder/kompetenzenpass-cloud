@@ -4452,11 +4452,14 @@ window.exportProgress = async function() {
         yPos += 10;
 
         pdfDoc.setFontSize(10);
-        competencies.forEach(comp => {
-            const rating = ratings[comp.id] || 0;
+        competencyLevels.forEach(level => {
+            const levelKey = `level_${level.id}`;
+            const rating = ratings[levelKey] || 0;
             const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
 
-            pdfDoc.text(`${comp.name}: ${stars}`, 20, yPos);
+            // LP Code + Beschreibung
+            const text = `${level.lpCode} - ${level.description}`;
+            pdfDoc.text(`${text}: ${stars}`, 20, yPos);
             yPos += 7;
 
             if (yPos > 270) {
