@@ -745,7 +745,19 @@ async function awardBadge(userId, badgeId, awardedBy = null, reason = null) {
             notified: false
         };
 
-        if (awardedBy) badgeData.awardedBy = awardedBy;
+        if (awardedBy) {
+            badgeData.awardedBy = awardedBy;
+            // Lehrername direkt speichern (vermeidet Permissions-Probleme beim Lesen)
+            try {
+                const teacherDoc = await getDoc(doc(window.db, 'users', awardedBy));
+                if (teacherDoc.exists()) {
+                    badgeData.awardedByName = teacherDoc.data().name || 'Unbekannt';
+                }
+            } catch (error) {
+                console.warn('Lehrername konnte nicht geladen werden:', error);
+                badgeData.awardedByName = 'Unbekannt';
+            }
+        }
         if (reason) badgeData.reason = reason;
 
         await setDoc(doc(collection(window.db, 'userBadges')), badgeData);
@@ -1099,7 +1111,7 @@ window.showBadgeDetail = function(badgeId) {
                 ${isEarned ? `
                     <div class="badge-detail-earned">
                         ✅ Erhalten am: ${formatDate(userBadge.awardedAt)}
-                        ${userBadge.awardedBy ? `<br>📝 Verliehen von: <span id="awardedByName-${badgeId}">Lädt...</span>` : ''}
+                        ${userBadge.awardedByName ? `<br>📝 Verliehen von: ${userBadge.awardedByName}` : ''}
                         ${userBadge.reason ? `<br>💬 Grund: ${userBadge.reason}` : ''}
                     </div>
                 ` : `
@@ -1119,16 +1131,6 @@ window.showBadgeDetail = function(badgeId) {
 
     document.body.appendChild(modal);
     setTimeout(() => modal.classList.add('show'), 10);
-
-    // Lehrername asynchron laden wenn Badge manuell vergeben wurde
-    if (isEarned && userBadge.awardedBy) {
-        getUserNameById(userBadge.awardedBy).then(name => {
-            const nameSpan = document.getElementById(`awardedByName-${badgeId}`);
-            if (nameSpan) {
-                nameSpan.textContent = name;
-            }
-        });
-    }
 };
 
 // Badge-Fortschritt berechnen (synchron mit bereits geladenen Daten)
