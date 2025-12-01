@@ -9,17 +9,27 @@ Ein cloud-basiertes System zur Erfassung und Verfolgung von Kompetenzen im Bildu
 - 📱 **Hierarchische Kompetenz-Struktur** basierend auf Lehrplan Informatik & Medien
 - 🎯 **Automatische Filterung** nach Klassenstufe
 - 💡 **Indikatoren** - Konkrete "Ich kann..."-Aussagen für granulare Bewertung
+- 🏆 **Badges & Achievements** - 16 automatische Badges + unbegrenzt Lehrer-Badges (NEU 2025-12-01)
+  - Automatische Vergabe bei Meilensteinen
+  - Badge-Showcase im Dashboard
+  - Animierte Benachrichtigungen
+  - Seltenheitssystem: Common 🟢, Rare 🔵, Epic 🟣, Legendary 🟡
 - 📊 **Fortschrittsanzeige** mit Gesamtübersicht
 - 📎 **Artefakte hochladen** als Nachweise
-- 📄 **PDF-Export** des persönlichen Kompetenzpasses
+- 📄 **PDF-Export** des persönlichen Kompetenzpasses (inkl. Badges)
 - 🔄 **Echtzeit-Synchronisation** über alle Geräte
 
 ### Für Lehrpersonen
 - 👥 **Schülerverwaltung** mit Klassen-Organisation
-- ✨ **Bulk-Import** - Mehrere Schüler auf einmal anlegen (NEU 2025-11-30)
-- 🔑 **Automatische Zugangsdaten** - Sichere Passwörter & E-Mail-Generierung (NEU)
-- 🖨️ **Druckbare Übersicht** - Zugangsdaten als Liste oder PDF exportieren (NEU)
-- 🗑️ **Schüler löschen** - Vollständige Datenlöschung inkl. Artefakte (NEU)
+- ✨ **Bulk-Import** - Mehrere Schüler auf einmal anlegen (2025-11-30)
+- 🔑 **Automatische Zugangsdaten** - Sichere Passwörter & E-Mail-Generierung
+- 🖨️ **Druckbare Übersicht** - Zugangsdaten als Liste oder PDF exportieren
+- 🗑️ **Schüler löschen** - Vollständige Datenlöschung inkl. Artefakte
+- 🏆 **Badge-Verwaltung** - Komplettes Badge-Management-System (NEU 2025-12-01)
+  - Eigene Badges erstellen (Name, Emoji, Seltenheit, Farbe)
+  - Badges manuell an Schüler verleihen (mit Begründung)
+  - Übersicht aller System- und Custom-Badges
+  - Kürzlich verliehene Badges einsehen
 - 📚 **87 Lehrplan-Kompetenzen** vordefiniert (Import-Tool)
 - 🏫 **Klassenstufen-Verwaltung** (KiGa bis 9. Klasse)
 - 💡 **Indikator-Verwaltung** - "Ich kann..."-Aussagen für jede Kompetenzstufe definieren
@@ -123,6 +133,8 @@ Schüler sehen nur Kompetenzen ihrer Klassenstufe:
 - **competencyLevels** - 87 Kompetenzstufen
 - **competencyIndicators** - "Ich kann..."-Aussagen zu Kompetenzstufen
 - **artifacts** - Hochgeladene Dateien
+- **userBadges** - Verliehene Badges (NEU 2025-12-01)
+- **customBadges** - Von Lehrern erstellte Badges (NEU 2025-12-01)
 
 Details siehe `CLAUDE.md`
 
@@ -152,8 +164,18 @@ Ausführliche Dokumentation für Entwickler: siehe **CLAUDE.md**
 - PDF-Export nur für einzelne Schüler (kein Klassen-Batch-Export)
 - Firebase Auth-Konten werden beim Löschen nicht entfernt (erfordert Cloud Functions)
 
-## ✅ Kürzlich implementiert (2025-11-30)
+## ✅ Kürzlich implementiert
 
+### 2025-12-01 - Badge System
+- 🏆 **Badges & Achievements System**
+  - 16 automatische Badges (Meilensteine, Bereichs-Experten, Zeitbasiert)
+  - Lehrer können eigene Badges erstellen
+  - Manuelle Badge-Vergabe mit Begründung
+  - Badge-Showcase im Schüler-Dashboard
+  - Animierte Badge-Benachrichtigungen
+  - Rarity-System (Common, Rare, Epic, Legendary)
+
+### 2025-11-30 - Schülerverwaltung
 - ✨ **Bulk-Import** für Schüler
 - 🔑 **Automatische Passwort-Generierung**
 - 🖨️ **Druckbare Zugangsdaten-Übersicht**
@@ -162,7 +184,6 @@ Ausführliche Dokumentation für Entwickler: siehe **CLAUDE.md**
 ## 🔮 Future Ideas
 
 - Timeline des Kompetenzfortschritts
-- Badges/Achievements System
 - Lehrer-Kommentare
 - Eltern-Zugang (read-only)
 - CSV-Import für Schülerlisten (zusätzlich zu Text-Input)
@@ -170,3 +191,5 @@ Ausführliche Dokumentation für Entwickler: siehe **CLAUDE.md**
 - Multi-Sprach-Support
 - Passwort-Reset-Funktion
 - Cloud Functions für vollständige User-Löschung
+- Activity-Tracking für erweiterte zeitbasierte Badges
+- Badge-Statistiken und Leaderboards pro Klasse

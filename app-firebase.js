@@ -1054,7 +1054,7 @@ window.showBadgeDetail = function(badgeId) {
     setTimeout(() => modal.classList.add('show'), 10);
 };
 
-// Badge-Fortschritt berechnen
+// Badge-Fortschritt berechnen (synchron mit bereits geladenen Daten)
 function getBadgeProgress(badge) {
     if (userRole !== 'student' || !currentUser) {
         return { text: 'Nicht verfügbar', percentage: null };
@@ -1062,41 +1062,40 @@ function getBadgeProgress(badge) {
 
     const criteria = badge.criteria;
 
-    // Progress aus aktuellem Zustand ermitteln
-    const progressRef = doc(window.db, 'progress', currentUser.uid);
-    getDoc(progressRef).then(doc => {
-        if (!doc.exists()) return { text: 'Keine Daten', percentage: 0 };
-        const ratings = doc.data().ratings || {};
+    // Versuche progress aus DOM zu holen (wenn bereits geladen)
+    // Fallback: Zeige nur Beschreibung
 
-        // Fortschritt je nach Kriterium berechnen
-        switch (criteria.type) {
-            case 'any_rating':
-                return {
-                    text: `${Object.keys(ratings).length} / ${criteria.threshold} Bewertungen`,
-                    percentage: Math.min(100, (Object.keys(ratings).length / criteria.threshold) * 100)
-                };
+    // Einfache Kriterien ohne Datenzugriff
+    switch (criteria.type) {
+        case 'any_rating':
+            return {
+                text: `Bewerte deine erste Kompetenz`,
+                percentage: null
+            };
 
-            case 'star_count':
-                const current = Object.values(ratings).filter(r => r >= criteria.minStars).length;
-                return {
-                    text: `${current} / ${criteria.threshold} Kompetenzen mit ${criteria.minStars}+ Sternen`,
-                    percentage: Math.min(100, (current / criteria.threshold) * 100)
-                };
+        case 'star_count':
+            return {
+                text: `${criteria.threshold} Kompetenzen mit ${criteria.minStars}+ Sternen erreichen`,
+                percentage: null
+            };
 
-            case 'all_rated':
-                const total = competencyLevels.length;
-                return {
-                    text: `${Object.keys(ratings).length} / ${total} Kompetenzen bewertet`,
-                    percentage: Math.min(100, (Object.keys(ratings).length / total) * 100)
-                };
+        case 'all_rated':
+            return {
+                text: `Alle Kompetenzen bewerten`,
+                percentage: null
+            };
 
-            default:
-                return { text: badge.description, percentage: null };
-        }
-    });
+        case 'area_mastery':
+            const areaName = criteria.areaId === 'medien' ? 'Medien' :
+                           criteria.areaId === 'informatik' ? 'Informatik' : 'Anwendungen';
+            return {
+                text: `Alle ${areaName}-Kompetenzen mit ${criteria.minStars}+ Sternen`,
+                percentage: null
+            };
 
-    // Fallback für synchrone Anzeige
-    return { text: badge.description, percentage: null };
+        default:
+            return { text: badge.description, percentage: null };
+    }
 }
 
 // Datum formatieren
@@ -1253,13 +1252,23 @@ async function loadRecentBadgeAwards() {
             return;
         }
 
-        const recentAwards = await Promise.all(recentSnapshot.docs.map(async doc => {
-            const data = doc.data();
+        const recentAwards = await Promise.all(recentSnapshot.docs.map(async docSnapshot => {
+            const data = docSnapshot.data();
             const userDoc = await getDoc(doc(window.db, 'users', data.userId));
             const userData = userDoc.data();
 
-            const badgeData = BADGE_DEFINITIONS.find(b => b.id === data.badgeId) ||
-                              (await getDoc(doc(window.db, 'customBadges', data.badgeId))).data();
+            // Badge-Daten aus Definitionen oder Custom-Badges holen
+            let badgeData = BADGE_DEFINITIONS.find(b => b.id === data.badgeId);
+
+            if (!badgeData) {
+                try {
+                    const customBadgeDoc = await getDoc(doc(window.db, 'customBadges', data.badgeId));
+                    badgeData = customBadgeDoc.exists() ? customBadgeDoc.data() : null;
+                } catch (error) {
+                    console.error('Fehler beim Laden des Custom Badge:', error);
+                    badgeData = null;
+                }
+            }
 
             return { ...data, userName: userData?.name, badgeData };
         }));
@@ -3958,6 +3967,9 @@ window.switchTab = function(tabId, event) {
         // Schüler sind bereits geladen durch Realtime-Updates
     } else if (tabId === 'reports-tab') {
         loadReportsTab();
+    } else if (tabId === 'badges-tab') {
+        // Badge-Verwaltung initial laden
+        loadBadgeManagement();
     }
 };
 
