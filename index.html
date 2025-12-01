@@ -142,6 +142,9 @@
                 <button class="tab-button" onclick="switchTab('classes-tab', event)">
                     🏫 Klassen
                 </button>
+                <button class="tab-button" onclick="switchTab('reviews-tab', event)" id="reviews-tab-button">
+                    📋 Anträge <span id="reviewsBadge" class="review-count-badge hidden"></span>
+                </button>
                 <button class="tab-button" onclick="switchTab('badges-tab', event)">
                     🏆 Auszeichnungen
                 </button>
@@ -196,6 +199,35 @@
                 </div>
                 <div id="classesList" class="classes-grid">
                     <!-- Klassenübersicht -->
+                </div>
+            </div>
+
+            <!-- Tab: Anträge (Reviews) -->
+            <div id="reviews-tab" class="tab-content hidden">
+                <div class="reviews-header">
+                    <h3>📋 Bewertungsanträge verwalten</h3>
+                    <p class="subtitle">Überprüfe und bestätige Selbstbewertungen der Schüler</p>
+                </div>
+
+                <!-- Filter Bar -->
+                <div class="review-filter-bar">
+                    <button class="review-filter-button active" onclick="loadReviewsWithFilter('pending')">
+                        ⏳ Offen <span class="badge-count" id="pendingCount">0</span>
+                    </button>
+                    <button class="review-filter-button" onclick="loadReviewsWithFilter('approved')">
+                        ✅ Bestätigt
+                    </button>
+                    <button class="review-filter-button" onclick="loadReviewsWithFilter('rejected')">
+                        ❌ Abgelehnt
+                    </button>
+                    <button class="review-filter-button" onclick="loadReviewsWithFilter('all')">
+                        📋 Alle
+                    </button>
+                </div>
+
+                <!-- Reviews List -->
+                <div id="reviewsList" class="review-list">
+                    <!-- Reviews werden hier geladen -->
                 </div>
             </div>
 
