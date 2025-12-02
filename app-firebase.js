@@ -3,7 +3,8 @@ import {
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
     signOut,
-    onAuthStateChanged
+    onAuthStateChanged,
+    sendPasswordResetEmail
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 
 import {
@@ -445,6 +446,261 @@ window.logoutUser = async function() {
         }
     }
 };
+
+// ============= PASSWORD RESET =============
+// Passwort-Zurücksetzen Dialog anzeigen
+window.showPasswordReset = function() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+        <div class="modal-content" style="max-width: 500px;">
+            <h3>🔑 Passwort zurücksetzen</h3>
+            <p>Gib deine E-Mail-Adresse ein. Du erhältst eine E-Mail mit einem Link zum Zurücksetzen deines Passworts.</p>
+
+            <div class="form-group">
+                <label>E-Mail-Adresse:</label>
+                <input type="email" id="resetEmail" class="form-control" placeholder="deine@email.com">
+            </div>
+
+            <div class="form-actions" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                <button onclick="closePasswordResetModal()" class="btn-secondary">Abbrechen</button>
+                <button onclick="sendPasswordReset()" class="btn-primary">📧 E-Mail senden</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+    setTimeout(() => overlay.classList.add('show'), 10);
+
+    // Schließen bei Klick außerhalb
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+            closePasswordResetModal();
+        }
+    });
+};
+
+// Modal schließen
+window.closePasswordResetModal = function() {
+    const overlay = document.querySelector('.modal-overlay');
+    if (overlay) {
+        overlay.classList.remove('show');
+        setTimeout(() => overlay.remove(), 300);
+    }
+};
+
+// Passwort-Reset-E-Mail senden
+window.sendPasswordReset = async function() {
+    const email = document.getElementById('resetEmail').value;
+
+    if (!email) {
+        showNotification('Bitte E-Mail-Adresse eingeben!', 'error');
+        return;
+    }
+
+    if (!isValidEmail(email)) {
+        showNotification('Bitte gültige E-Mail-Adresse eingeben!', 'error');
+        return;
+    }
+
+    showLoading(true);
+
+    try {
+        await sendPasswordResetEmail(window.auth, email);
+        showNotification('E-Mail zum Zurücksetzen wurde gesendet! Bitte überprüfe dein Postfach.', 'success');
+        closePasswordResetModal();
+    } catch (error) {
+        console.error('Password reset error:', error);
+
+        if (error.code === 'auth/user-not-found') {
+            showNotification('Kein Account mit dieser E-Mail-Adresse gefunden.', 'error');
+        } else if (error.code === 'auth/invalid-email') {
+            showNotification('Ungültige E-Mail-Adresse!', 'error');
+        } else if (error.code === 'auth/too-many-requests') {
+            showNotification('Zu viele Versuche. Bitte warte einen Moment.', 'error');
+        } else {
+            showNotification('Fehler beim Senden der E-Mail: ' + error.message, 'error');
+        }
+    } finally {
+        showLoading(false);
+    }
+};
+
+// ============= FORTSCHRITTS-TIMELINE =============
+
+// Lädt und rendert die Fortschritts-Timeline für einen Schüler
+async function renderProgressTimeline(userId) {
+    try {
+        // Letzte 10 Snapshots laden
+        const q = query(
+            collection(window.db, 'progressHistory'),
+            where('userId', '==', userId),
+            orderBy('timestamp', 'desc'),
+            limit(10)
+        );
+
+        const snapshot = await getDocs(q);
+        const history = [];
+
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            history.push({
+                id: doc.id,
+                ...data,
+                timestamp: data.timestamp?.toDate() || new Date()
+            });
+        });
+
+        // Container finden oder erstellen
+        let container = document.getElementById('progressTimelineContainer');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'progressTimelineContainer';
+            container.className = 'progress-timeline-section';
+
+            // Nach Badge Showcase einfügen
+            const badgeShowcase = document.getElementById('badgeShowcase');
+            if (badgeShowcase && badgeShowcase.nextSibling) {
+                badgeShowcase.parentNode.insertBefore(container, badgeShowcase.nextSibling);
+            } else {
+                document.getElementById('mainArea').insertBefore(
+                    container,
+                    document.getElementById('competencies')
+                );
+            }
+        }
+
+        if (history.length === 0) {
+            container.innerHTML = `
+                <div class="timeline-header">
+                    <h3>📈 Mein Fortschritt</h3>
+                </div>
+                <div class="timeline-empty">
+                    Noch keine Verlaufsdaten vorhanden. Bewerte deine ersten Kompetenzen!
+                </div>
+            `;
+            return;
+        }
+
+        // Trend berechnen
+        const latestProgress = history[0].totalProgress || 0;
+        const oldestProgress = history[history.length - 1].totalProgress || 0;
+        const trend = latestProgress - oldestProgress;
+        const trendIcon = trend > 0 ? '📈' : trend < 0 ? '📉' : '➡️';
+        const trendText = trend > 0 ? `+${trend}%` : trend < 0 ? `${trend}%` : 'unverändert';
+        const trendColor = trend > 0 ? '#48bb78' : trend < 0 ? '#f56565' : '#888';
+
+        // Timeline HTML generieren
+        let timelineHTML = `
+            <div class="timeline-header">
+                <h3>📈 Mein Fortschritt</h3>
+                <div class="timeline-trend" style="color: ${trendColor};">
+                    ${trendIcon} ${trendText}
+                    <span style="font-size: 12px; color: #888; font-weight: normal;">
+                        (letzte ${history.length} Änderungen)
+                    </span>
+                </div>
+            </div>
+            <div class="timeline-list">
+        `;
+
+        history.forEach((entry, index) => {
+            const date = entry.timestamp.toLocaleDateString('de-DE', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            });
+            const time = entry.timestamp.toLocaleTimeString('de-DE', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            const isFirst = index === 0;
+            const changedInfo = entry.changedCompetency
+                ? `<div class="timeline-change">Geändert: ${escapeHTML(entry.changedCompetency)} → ${entry.newRating} ⭐</div>`
+                : '';
+
+            timelineHTML += `
+                <div class="timeline-item ${isFirst ? 'timeline-item-latest' : ''}">
+                    <div class="timeline-marker"></div>
+                    <div class="timeline-content">
+                        <div class="timeline-date">${date} um ${time}</div>
+                        <div class="timeline-stats">
+                            <div class="timeline-stat">
+                                <span class="stat-label">Fortschritt:</span>
+                                <span class="stat-value">${entry.totalProgress}%</span>
+                            </div>
+                            <div class="timeline-stat">
+                                <span class="stat-label">Bewertungen:</span>
+                                <span class="stat-value">${entry.totalRatings}</span>
+                            </div>
+                        </div>
+                        ${changedInfo}
+                    </div>
+                </div>
+            `;
+        });
+
+        timelineHTML += '</div>';
+
+        container.innerHTML = timelineHTML;
+
+    } catch (error) {
+        console.error('Fehler beim Laden der Timeline:', error);
+    }
+}
+
+// Speichert einen Snapshot des aktuellen Fortschritts in der History
+async function saveProgressSnapshot(userId, competencyId = null, newRating = null) {
+    try {
+        // Aktuellen Fortschritt laden
+        const progressRef = doc(window.db, 'progress', userId);
+        const progressDoc = await getDoc(progressRef);
+
+        if (!progressDoc.exists()) return;
+
+        const ratings = progressDoc.data().ratings || {};
+
+        // Gesamtfortschritt berechnen
+        const totalProgress = calculateProgress(ratings);
+
+        // Anzahl der Ratings nach Sternen
+        const ratingCounts = {
+            '5': 0,
+            '4': 0,
+            '3': 0,
+            '2': 0,
+            '1': 0
+        };
+
+        Object.values(ratings).forEach(rating => {
+            if (rating >= 1 && rating <= 5) {
+                ratingCounts[rating.toString()]++;
+            }
+        });
+
+        // Snapshot erstellen
+        const snapshot = {
+            userId: userId,
+            timestamp: serverTimestamp(),
+            totalProgress: totalProgress,
+            totalRatings: Object.keys(ratings).length,
+            ratingCounts: ratingCounts,
+            // Optional: Spezifische Änderung tracken
+            ...(competencyId && newRating ? {
+                changedCompetency: competencyId,
+                newRating: newRating
+            } : {})
+        };
+
+        // In progressHistory Collection speichern
+        await addDoc(collection(window.db, 'progressHistory'), snapshot);
+
+    } catch (error) {
+        console.error('Fehler beim Speichern des Progress-Snapshots:', error);
+        // Nicht kritisch - kein Error für User
+    }
+}
 
 // ============= BENUTZERDATEN LADEN =============
 async function loadUserData() {
@@ -1702,7 +1958,10 @@ async function approveReview(reviewId, review) {
 
         await batch.commit();
 
-        // 3. Badges prüfen (bei Schüler)
+        // 3. Progress-Snapshot speichern
+        await saveProgressSnapshot(review.studentId, review.competencyKey, review.newRating);
+
+        // 4. Badges prüfen (bei Schüler)
         await checkAndAwardBadges(review.studentId);
 
         showNotification('Antrag bestätigt!', 'success');
@@ -2096,10 +2355,12 @@ async function showStudentArea(userData) {
             const progress = doc.data();
             // Pending Reviews aktualisieren
             studentPendingReviews = progress.pendingReviews || {};
-            await renderStudentCompetencies(progress.ratings || {});
+            await renderStudentCompetencies(progress.ratings || {}, progress.comments || {});
+            // Timeline aktualisieren
+            await renderProgressTimeline(currentUser.uid);
         } else {
             studentPendingReviews = {};
-            await renderStudentCompetencies({});
+            await renderStudentCompetencies({}, {});
         }
     });
 
@@ -2117,10 +2378,13 @@ async function showStudentArea(userData) {
 
     // Badge-Anzeige rendern
     renderBadgeShowcase();
+
+    // Fortschritts-Timeline laden
+    await renderProgressTimeline(currentUser.uid);
 }
 
 // Kompetenzen für Schüler rendern (hierarchisch)
-async function renderStudentCompetencies(ratings) {
+async function renderStudentCompetencies(ratings, comments = {}) {
     const container = document.getElementById('competencies');
     container.innerHTML = '';
 
@@ -2269,6 +2533,22 @@ async function renderStudentCompetencies(ratings) {
                 const gradeText = level.grades?.join(', ') || '';
                 const basicReqBadge = level.isBasicRequirement ? '<span class="basic-req-badge">Grundanspruch</span>' : '';
 
+                // Lehrer-Kommentar für diese Kompetenz laden
+                const comment = comments[level.id];
+                let commentHtml = '';
+                if (comment && comment.text) {
+                    const commentDate = comment.updatedAt ? new Date(comment.updatedAt.toMillis()).toLocaleDateString('de-DE') : '';
+                    commentHtml = `
+                        <div class="teacher-comment">
+                            <div class="comment-header">
+                                💬 <strong>Kommentar von ${escapeHTML(comment.teacherName)}</strong>
+                                ${commentDate ? `<span class="comment-date">(${commentDate})</span>` : ''}
+                            </div>
+                            <div class="comment-text">${escapeHTML(comment.text)}</div>
+                        </div>
+                    `;
+                }
+
                 card.innerHTML = `
                     <div class="competency-header">
                         <div class="competency-info">
@@ -2294,6 +2574,7 @@ async function renderStudentCompetencies(ratings) {
                         <div class="progress-fill" style="width: ${rating * 20}%"></div>
                     </div>
                     ${reviewStatusHtml}
+                    ${commentHtml}
                 `;
 
                 // Indikatoren-Bereich (falls vorhanden)
@@ -2410,6 +2691,9 @@ async function updateRating(competencyId, rating) {
                 lastUpdated: serverTimestamp()
             });
 
+            // Progress-Snapshot speichern
+            await saveProgressSnapshot(currentUser.uid, competencyId, rating);
+
             showNotification('Bewertung gespeichert!', 'success');
             updateSyncStatus('saved');
             return;
@@ -2434,7 +2718,8 @@ async function updateRating(competencyId, rating) {
         // UI neu laden, um pending Status anzuzeigen
         const progressData = await getDoc(progressRef);
         const ratings = progressData.exists() ? (progressData.data().ratings || {}) : {};
-        await renderStudentCompetencies(ratings);
+        const comments = progressData.exists() ? (progressData.data().comments || {}) : {};
+        await renderStudentCompetencies(ratings, comments);
 
     } catch (error) {
         console.error('Fehler beim Erstellen des Antrags:', error);
@@ -3717,6 +4002,7 @@ window.showStudentDetails = async function(studentId) {
 
         const studentData = studentDoc.data();
         const ratings = progressDoc.exists() ? (progressDoc.data().ratings || {}) : {};
+        const comments = progressDoc.exists() ? (progressDoc.data().comments || {}) : {};
 
         // Fortschritt berechnen
         const progress = calculateProgress(ratings);
@@ -3757,24 +4043,61 @@ window.showStudentDetails = async function(studentId) {
         });
         
         let competenciesHTML = '';
-        competencies.forEach(comp => {
-            const rating = ratings[comp.id] || 0;
+
+        // Verwende competencyLevels für hierarchische Darstellung
+        const levelsToShow = competencyLevels.slice(0, 10); // Zeige nur ersten 10 für Performance
+
+        for (const level of levelsToShow) {
+            const rating = ratings[level.id] || 0;
             const stars = '★'.repeat(rating) + '☆'.repeat(MAX_RATING - rating);
             const percentage = (rating / MAX_RATING) * 100;
 
+            // Kommentar für diese Kompetenz laden
+            const comment = comments[level.id];
+            const commentText = comment?.text || '';
+            const commentAuthor = comment?.teacherName || '';
+            const commentDate = comment?.updatedAt ? new Date(comment.updatedAt.toMillis()).toLocaleDateString('de-DE') : '';
+
             competenciesHTML += `
-                <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #f0f0f0;">
+                <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                        <span style="font-weight: 500; font-size: 14px;">${escapeHTML(comp.name)}</span>
+                        <span style="font-weight: 600; font-size: 14px; color: #667eea;">${escapeHTML(level.lpCode)}</span>
                         <span style="color: #f6ad55; font-size: 16px;">${stars}</span>
                     </div>
-                    <div style="font-size: 12px; color: #888; margin-bottom: 8px;">${escapeHTML(comp.description)}</div>
-                    <div style="background: #e2e8f0; height: 6px; border-radius: 3px; overflow: hidden;">
+                    <div style="font-size: 13px; color: #333; margin-bottom: 8px; line-height: 1.4;">${escapeHTML(level.description)}</div>
+                    <div style="background: #e2e8f0; height: 6px; border-radius: 3px; overflow: hidden; margin-bottom: 12px;">
                         <div style="background: #667eea; width: ${percentage}%; height: 100%;"></div>
+                    </div>
+
+                    <!-- Kommentar-Bereich -->
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed #dee2e6;">
+                        <label style="display: block; font-weight: 600; font-size: 12px; color: #555; margin-bottom: 6px;">
+                            💬 Lehrer-Kommentar:
+                        </label>
+                        <textarea id="comment_${level.id}"
+                                  style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 6px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 60px;"
+                                  placeholder="Kommentar für ${escapeHTML(level.lpCode)} (optional)">${escapeHTML(commentText)}</textarea>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+                            <small style="color: #888; font-size: 11px;">
+                                ${commentAuthor ? `Zuletzt bearbeitet: ${commentAuthor} (${commentDate})` : ''}
+                            </small>
+                            <button onclick="saveTeacherComment('${studentId}', '${level.id}')"
+                                    style="background: #667eea; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;">
+                                💾 Speichern
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
-        });
+        }
+
+        if (competencyLevels.length > 10) {
+            competenciesHTML += `
+                <div style="text-align: center; color: #888; font-size: 13px; margin-top: 10px;">
+                    <em>Zeige ${levelsToShow.length} von ${competencyLevels.length} Kompetenzen (zur Performance-Optimierung)</em>
+                </div>
+            `;
+        }
         
         modal.innerHTML = `
             <div style="background: white; border-radius: 16px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
@@ -3919,6 +4242,60 @@ window.saveStudentChanges = async function(studentId) {
 
     } catch (error) {
         console.error('Fehler beim Speichern:', error);
+        showNotification('Fehler beim Speichern: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+// Lehrer-Kommentar speichern
+window.saveTeacherComment = async function(studentId, levelId) {
+    const commentTextarea = document.getElementById(`comment_${levelId}`);
+    if (!commentTextarea) {
+        showNotification('Kommentar-Feld nicht gefunden!', 'error');
+        return;
+    }
+
+    const commentText = commentTextarea.value.trim();
+
+    showLoading(true);
+
+    try {
+        const progressRef = doc(window.db, 'progress', studentId);
+        const progressDoc = await getDoc(progressRef);
+
+        // Existierende Kommentare laden oder leeres Objekt erstellen
+        const existingData = progressDoc.exists() ? progressDoc.data() : {};
+        const comments = existingData.comments || {};
+
+        if (commentText) {
+            // Kommentar speichern/aktualisieren
+            comments[levelId] = {
+                text: commentText,
+                teacherName: currentUser.displayName || (await getDoc(doc(window.db, 'users', currentUser.uid))).data().name,
+                teacherId: currentUser.uid,
+                updatedAt: serverTimestamp()
+            };
+        } else {
+            // Leerer Text: Kommentar löschen
+            delete comments[levelId];
+        }
+
+        // Progress-Dokument aktualisieren
+        await updateDoc(progressRef, {
+            comments: comments
+        });
+
+        showNotification('Kommentar gespeichert!', 'success');
+
+        // Visuelles Feedback
+        commentTextarea.style.borderColor = '#48bb78';
+        setTimeout(() => {
+            commentTextarea.style.borderColor = '';
+        }, 1500);
+
+    } catch (error) {
+        console.error('Fehler beim Speichern des Kommentars:', error);
         showNotification('Fehler beim Speichern: ' + error.message, 'error');
     } finally {
         showLoading(false);

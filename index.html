@@ -66,6 +66,9 @@
                     <input type="email" id="studentEmail" placeholder="E-Mail Adresse">
                     <input type="password" id="studentPassword" placeholder="Passwort">
                     <button onclick="loginStudent()">Einloggen</button>
+                    <div style="text-align: center; margin-top: 10px;">
+                        <a href="#" onclick="showPasswordReset(); return false;" style="font-size: 0.9em; color: #667eea;">🔑 Passwort vergessen?</a>
+                    </div>
                 </div>
                 
                 <!-- Register Form -->
@@ -88,6 +91,9 @@
                 <input type="email" id="teacherEmail" placeholder="E-Mail Adresse">
                 <input type="password" id="teacherPassword" placeholder="Passwort">
                 <button onclick="loginTeacher()">Als Lehrer einloggen</button>
+                <div style="text-align: center; margin: 10px 0;">
+                    <a href="#" onclick="showPasswordReset(); return false;" style="font-size: 0.9em; color: #667eea;">🔑 Passwort vergessen?</a>
+                </div>
                 <div class="teacher-login-link">
                     <a href="#" onclick="showStudentAuth(); return false;">← Zurück zum Schüler-Login</a>
                 </div>
