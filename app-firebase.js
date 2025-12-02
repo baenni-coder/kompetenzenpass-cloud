@@ -4044,61 +4044,104 @@ window.showStudentDetails = async function(studentId) {
         
         let competenciesHTML = '';
 
-        // Verwende competencyLevels für hierarchische Darstellung
-        const levelsToShow = competencyLevels.slice(0, 10); // Zeige nur ersten 10 für Performance
-
-        for (const level of levelsToShow) {
+        // Nur Kompetenzen mit Bewertungen anzeigen (rating > 0)
+        const ratedLevels = competencyLevels.filter(level => {
             const rating = ratings[level.id] || 0;
-            const stars = '★'.repeat(rating) + '☆'.repeat(MAX_RATING - rating);
-            const percentage = (rating / MAX_RATING) * 100;
+            return rating > 0;
+        });
 
-            // Kommentar für diese Kompetenz laden
-            const comment = comments[level.id];
-            const commentText = comment?.text || '';
-            const commentAuthor = comment?.teacherName || '';
-            const commentDate = comment?.updatedAt ? new Date(comment.updatedAt.toMillis()).toLocaleDateString('de-DE') : '';
+        if (ratedLevels.length === 0) {
+            competenciesHTML = `
+                <div style="text-align: center; padding: 40px 20px; color: #888;">
+                    <div style="font-size: 48px; margin-bottom: 15px;">📊</div>
+                    <p style="font-size: 16px; margin: 0;">Noch keine Kompetenzen bewertet</p>
+                    <p style="font-size: 14px; margin: 10px 0 0 0;">Der Schüler hat noch keine Bewertungen vorgenommen.</p>
+                </div>
+            `;
+        } else {
+            // Hierarchisch nach Bereichen gruppieren
+            for (const area of competencyAreas) {
+                const levelsInArea = ratedLevels.filter(level => {
+                    const group = competencyGroups.find(g => g.id === level.competencyId);
+                    return group && group.areaId === area.id;
+                });
 
-            competenciesHTML += `
-                <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                        <span style="font-weight: 600; font-size: 14px; color: #667eea;">${escapeHTML(level.lpCode)}</span>
-                        <span style="color: #f6ad55; font-size: 16px;">${stars}</span>
-                    </div>
-                    <div style="font-size: 13px; color: #333; margin-bottom: 8px; line-height: 1.4;">${escapeHTML(level.description)}</div>
-                    <div style="background: #e2e8f0; height: 6px; border-radius: 3px; overflow: hidden; margin-bottom: 12px;">
-                        <div style="background: #667eea; width: ${percentage}%; height: 100%;"></div>
-                    </div>
+                if (levelsInArea.length === 0) continue;
 
-                    <!-- Kommentar-Bereich -->
-                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed #dee2e6;">
-                        <label style="display: block; font-weight: 600; font-size: 12px; color: #555; margin-bottom: 6px;">
-                            💬 Lehrer-Kommentar:
-                        </label>
-                        <textarea id="comment_${level.id}"
-                                  style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 6px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 60px;"
-                                  placeholder="Kommentar für ${escapeHTML(level.lpCode)} (optional)">${escapeHTML(commentText)}</textarea>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
-                            <small style="color: #888; font-size: 11px;">
-                                ${commentAuthor ? `Zuletzt bearbeitet: ${commentAuthor} (${commentDate})` : ''}
-                            </small>
-                            <button onclick="saveTeacherComment('${studentId}', '${level.id}')"
-                                    style="background: #667eea; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;">
-                                💾 Speichern
-                            </button>
+                // Bereich-Header (ausklappbar)
+                competenciesHTML += `
+                    <div class="teacher-competency-area" style="margin-bottom: 20px;">
+                        <div class="teacher-area-header" onclick="toggleTeacherArea(this)"
+                             style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 15px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <span style="font-weight: 600; font-size: 15px;">
+                                ${area.emoji} ${escapeHTML(area.name)}
+                                <span style="opacity: 0.8; font-weight: normal; font-size: 13px;">(${levelsInArea.length} bewertet)</span>
+                            </span>
+                            <span class="toggle-icon" style="font-size: 18px;">▼</span>
+                        </div>
+                        <div class="teacher-area-content" style="display: block;">
+                `;
+
+                // Kompetenzen in diesem Bereich
+                for (const level of levelsInArea) {
+                    const rating = ratings[level.id] || 0;
+                    const stars = '★'.repeat(rating) + '☆'.repeat(MAX_RATING - rating);
+                    const percentage = (rating / MAX_RATING) * 100;
+
+                    // Kommentar für diese Kompetenz laden
+                    const comment = comments[level.id];
+                    const commentText = comment?.text || '';
+                    const commentAuthor = comment?.teacherName || '';
+                    const commentDate = comment?.updatedAt ? new Date(comment.updatedAt.toMillis()).toLocaleDateString('de-DE') : '';
+
+                    competenciesHTML += `
+                        <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                                <span style="font-weight: 600; font-size: 14px; color: #667eea;">${escapeHTML(level.lpCode)}</span>
+                                <span style="color: #f6ad55; font-size: 16px;">${stars}</span>
+                            </div>
+                            <div style="font-size: 13px; color: #333; margin-bottom: 8px; line-height: 1.4;">${escapeHTML(level.description)}</div>
+                            <div style="background: #e2e8f0; height: 6px; border-radius: 3px; overflow: hidden; margin-bottom: 12px;">
+                                <div style="background: #667eea; width: ${percentage}%; height: 100%;"></div>
+                            </div>
+
+                            <!-- Kommentar-Bereich -->
+                            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed #dee2e6;">
+                                <label style="display: block; font-weight: 600; font-size: 12px; color: #555; margin-bottom: 6px;">
+                                    💬 Lehrer-Kommentar:
+                                </label>
+                                <textarea id="comment_${level.id}"
+                                          style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 6px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 60px;"
+                                          placeholder="Kommentar für ${escapeHTML(level.lpCode)} (optional)">${escapeHTML(commentText)}</textarea>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+                                    <small style="color: #888; font-size: 11px;">
+                                        ${commentAuthor ? `Zuletzt bearbeitet: ${commentAuthor} (${commentDate})` : ''}
+                                    </small>
+                                    <button onclick="saveTeacherComment('${studentId}', '${level.id}')"
+                                            style="background: #667eea; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;">
+                                        💾 Speichern
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                competenciesHTML += `
                         </div>
                     </div>
+                `;
+            }
+
+            // Info über gefilterte Ansicht
+            competenciesHTML += `
+                <div style="text-align: center; color: #888; font-size: 13px; margin-top: 15px; padding: 12px; background: #f0f9ff; border-radius: 6px;">
+                    <strong>${ratedLevels.length} von ${competencyLevels.length}</strong> Kompetenzen bewertet
+                    ${ratedLevels.length < competencyLevels.length ? ' (nur bewertete werden angezeigt)' : ' (vollständig!)'}
                 </div>
             `;
         }
 
-        if (competencyLevels.length > 10) {
-            competenciesHTML += `
-                <div style="text-align: center; color: #888; font-size: 13px; margin-top: 10px;">
-                    <em>Zeige ${levelsToShow.length} von ${competencyLevels.length} Kompetenzen (zur Performance-Optimierung)</em>
-                </div>
-            `;
-        }
-        
         modal.innerHTML = `
             <div style="background: white; border-radius: 16px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
                 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 16px 16px 0 0;">
@@ -4245,6 +4288,20 @@ window.saveStudentChanges = async function(studentId) {
         showNotification('Fehler beim Speichern: ' + error.message, 'error');
     } finally {
         showLoading(false);
+    }
+};
+
+// Toggle für Kompetenzbereiche im Lehrer-Modal
+window.toggleTeacherArea = function(headerElement) {
+    const content = headerElement.nextElementSibling;
+    const icon = headerElement.querySelector('.toggle-icon');
+
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.textContent = '▼';
+    } else {
+        content.style.display = 'none';
+        icon.textContent = '▶';
     }
 };
 
