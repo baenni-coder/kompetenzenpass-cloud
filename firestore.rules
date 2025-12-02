@@ -84,13 +84,30 @@ service cloud.firestore {
       allow write: if isTeacher();
     }
 
-    // ============= FORTSCHRITT (BEWERTUNGEN) =============
+    // ============= FORTSCHRITT (BEWERTUNGEN & KOMMENTARE) =============
     match /progress/{userId} {
       // Jeder authentifizierte Benutzer kann seinen eigenen Fortschritt lesen und schreiben
+      // Enthält: ratings, comments (von Lehrern), pendingReviews
       allow read, write: if isAuthenticated() && request.auth.uid == userId;
 
       // Lehrer können alle Fortschritte lesen und schreiben
+      // Wichtig: Lehrer können comments hinzufügen/ändern
       allow read, write: if isTeacher();
+    }
+
+    // ============= FORTSCHRITTS-HISTORIE (NEU - 2025-12-02) =============
+    match /progressHistory/{snapshotId} {
+      // Schüler können ihre eigene Historie lesen
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+
+      // Schüler können ihre eigenen Snapshots erstellen (automatisch bei Rating-Änderungen)
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+
+      // Lehrer können alle Historien lesen
+      allow read: if isTeacher();
+
+      // Lehrer können Historien erstellen (wenn sie Ratings für Schüler setzen)
+      allow create: if isTeacher();
     }
 
     // ============= ARTEFAKTE (DATEI-UPLOADS) =============
@@ -110,38 +127,42 @@ service cloud.firestore {
       allow delete: if isTeacher();
     }
     
-    // USER BADGES (NEU!)
+    // ============= BADGES & AUSZEICHNUNGEN =============
+    // User Badges (verliehene Badges pro Schüler)
     match /userBadges/{badgeId} {
       // Schüler können ihre eigenen Badges lesen
       allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      
-      // Schüler können ihre eigenen Badges erstellen (automatische Vergabe)
+
+      // Schüler können ihre eigenen Badges erstellen (automatische Vergabe durch System)
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      
-      // Lehrer können alle Badges lesen und erstellen
+
+      // Lehrer können alle Badges lesen und erstellen (manuelle Vergabe)
       allow read, create: if isTeacher();
     }
-    
-    // NEUE RULES FÜR CUSTOM BADGES
-match /customBadges/{badgeId} {
-  // Alle können Custom Badges lesen
-  allow read: if isAuthenticated();
-  
-  // Nur Lehrer können Custom Badges erstellen
-  allow create: if isTeacher();
-  
-  // Nur der Ersteller kann sein eigenes Badge bearbeiten/löschen
-  allow update, delete: if isTeacher() 
-                         && resource.data.createdBy == request.auth.uid;
-}
-// Beispiel-Rules für competencyReviews Collection
-match /competencyReviews/{reviewId} {
-  allow read: if request.auth != null;
-  allow create: if request.auth != null && 
-                   request.resource.data.studentId == request.auth.uid;
-  allow update: if request.auth != null && 
-                   get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
-}
+
+    // Custom Badges (von Lehrern erstellte Badge-Definitionen)
+    match /customBadges/{badgeId} {
+      // Alle authentifizierten Benutzer können Custom Badges lesen
+      allow read: if isAuthenticated();
+
+      // Nur Lehrer können Custom Badges erstellen
+      allow create: if isTeacher();
+
+      // Nur der Ersteller kann sein eigenes Badge bearbeiten/löschen
+      allow update, delete: if isTeacher() && resource.data.createdBy == request.auth.uid;
+    }
+
+    // ============= BEWERTUNGS-ANTRÄGE (REVIEW-SYSTEM) =============
+    match /competencyReviews/{reviewId} {
+      // Alle authentifizierten Benutzer können Reviews lesen (für Dashboard-Badge)
+      allow read: if isAuthenticated();
+
+      // Schüler können nur ihre eigenen Reviews erstellen
+      allow create: if isAuthenticated() && request.resource.data.studentId == request.auth.uid;
+
+      // Nur Lehrer können Reviews bearbeiten (approve/reject)
+      allow update: if isTeacher();
+    }
 
 
   }
