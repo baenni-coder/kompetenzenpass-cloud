@@ -1,6 +1,6 @@
 # CLAUDE.md - Digitaler Kompetenzpass (Cloud Version)
 
-**Last Updated:** 2025-12-01
+**Last Updated:** 2025-12-02
 **Repository:** baenni-coder/kompetenzenpass-cloud
 **Language:** German (UI and comments)
 
@@ -204,17 +204,154 @@ kompetenzenpass-cloud/
 - PDF export includes badges
 - Rarity system: Common 🟢, Rare 🔵, Epic 🟣, Legendary 🟡
 
-### Firebase Security Considerations
+### Firestore Security Rules
 
-⚠️ **Important:** The Firebase config (including API key) is exposed in `index.html:16-24`. This is typical for client-side Firebase apps, but security rules in Firestore are critical.
+⚠️ **CRITICAL FOR PRODUCTION:** The Firebase config (including API key) is exposed in `index.html:16-24`. This is standard for client-side Firebase apps, but **server-side security rules are MANDATORY**.
 
-**Required Firestore Rules:**
-- Students can read/write their own progress documents
-- Students can read all competencies, areas, and levels
-- Teachers can read all documents
-- Teachers can write to: users, classes, competencyAreas, competencies, competencyLevels
-- Authentication required for all operations
-- See Firebase Console for complete rules implementation
+#### Deploying Security Rules
+
+The complete security rules are defined in `firestore.rules`. To deploy them:
+
+**Option 1: Firebase Console (Recommended for beginners)**
+1. Open [Firebase Console](https://console.firebase.google.com/)
+2. Select your project → Firestore Database
+3. Navigate to "Rules" tab
+4. Copy contents from `firestore.rules`
+5. Click "Publish"
+
+**Option 2: Firebase CLI (Recommended for development)**
+```bash
+# Install Firebase CLI (if not already installed)
+npm install -g firebase-tools
+
+# Login to Firebase
+firebase login
+
+# Initialize Firebase in project (only once)
+firebase init firestore
+
+# Deploy rules
+firebase deploy --only firestore:rules
+```
+
+#### Security Rules Overview
+
+The `firestore.rules` file implements role-based access control (RBAC):
+
+**Key Principles:**
+- ✅ All operations require authentication
+- ✅ Students can only access their own data
+- ✅ Teachers have elevated permissions
+- ✅ Role validation via Firestore lookup
+- ✅ Resource-level ownership checks
+
+**Collection Access Matrix:**
+
+| Collection | Students (Read) | Students (Write) | Teachers (Read) | Teachers (Write) |
+|------------|----------------|------------------|-----------------|------------------|
+| `users` | Own only | Own only | All | All |
+| `classes` | All | ❌ | All | All |
+| `competencyAreas` | All | ❌ | All | All |
+| `competencies` | All | ❌ | All | All |
+| `competencyLevels` | All | ❌ | All | All |
+| `competencyIndicators` | All | ❌ | All | All |
+| `progress` | Own only | Own only | All | All |
+| `progressHistory` | Own only | Own only | All | Create |
+| `artifacts` | Own only | Own only | All | Delete |
+| `userBadges` | Own only | Own only (auto) | All | All |
+| `customBadges` | All | ❌ | All | Create |
+| `competencyReviews` | All | Own only (create) | All | Update |
+
+**Important Features:**
+
+1. **Progress Collection** (includes comments)
+   - Students can read/write ratings (via review system)
+   - Teachers can add/edit comments
+   - Schema: `{ ratings: {}, comments: {}, pendingReviews: {} }`
+
+2. **Progress History** (NEW - 2025-12-02)
+   - Auto-created on every rating change
+   - Students can only read their own history
+   - Teachers can read all histories
+   - Used for timeline feature
+
+3. **Badge System**
+   - Students can create userBadges (automatic awards)
+   - Teachers can create userBadges (manual awards)
+   - Only teachers can create customBadges
+   - Everyone can read badges
+
+4. **Review System**
+   - Students submit reviews (create)
+   - Teachers approve/reject (update)
+   - All can read (for badge counter)
+
+#### Helper Functions in Rules
+
+```javascript
+function isAuthenticated() {
+  return request.auth != null;
+}
+
+function isOwner(userId) {
+  return isAuthenticated() && request.auth.uid == userId;
+}
+
+function getUserRole() {
+  return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+}
+
+function isTeacher() {
+  return isAuthenticated() && getUserRole() == 'teacher';
+}
+```
+
+#### Testing Security Rules
+
+**Firebase Console:**
+1. Firestore Database → Rules tab
+2. Click "Rules Playground"
+3. Test read/write operations with different roles
+
+**Example Tests:**
+```
+# Test student can read own progress
+Auth: student-uid-123
+Read: /progress/student-uid-123
+Expected: Allow
+
+# Test student cannot read other progress
+Auth: student-uid-123
+Read: /progress/student-uid-456
+Expected: Deny
+
+# Test teacher can read all progress
+Auth: teacher-uid-789 (with role=teacher)
+Read: /progress/student-uid-123
+Expected: Allow
+```
+
+#### Important Notes
+
+- **Role verification requires Firestore read:** Each request with `getUserRole()` counts toward quota
+- **Update rules when adding new collections:** Always update both `firestore.rules` and this documentation
+- **Test thoroughly:** Use Rules Playground before deploying to production
+- **Monitor usage:** Check Firebase Console → Usage tab for rule evaluations
+
+#### Common Security Issues to Avoid
+
+❌ **DON'T:**
+- Use `allow read, write: if true;` (public access)
+- Trust client-side role checks only
+- Forget to update rules when adding collections
+- Use admin SDK credentials in client code
+
+✅ **DO:**
+- Always require authentication
+- Validate ownership at resource level
+- Use helper functions for DRY rules
+- Test rules before deploying
+- Document rule changes in CLAUDE.md
 
 ## Hierarchical Competency Structure
 
@@ -685,7 +822,12 @@ Warning: #ed8936 (Orange)
 ### Adding New Features
 
 **Before Adding Code:**
-1. Check if Firebase rules need updating
+1. **Check if Firebase rules need updating**
+   - New Firestore collection? → Add rules to `firestore.rules`
+   - Changed access patterns? → Update existing rules
+   - Test rules in Firebase Console Rules Playground
+   - Deploy rules: `firebase deploy --only firestore:rules`
+   - Document changes in CLAUDE.md → Firestore Security Rules section
 2. Consider real-time sync implications
 3. Add loading states for async operations
 4. Include error handling with user notifications
@@ -999,12 +1141,9 @@ When making changes:
 ## Known Limitations
 
 1. **No offline support** - Requires internet connection
-2. **Client-side only validation** - No server-side security enforcement
-3. **Progress report over time** - Placeholder, not implemented
-4. **No teacher account management** - Teachers can't be created from UI
-5. **No password reset** - Not implemented
-6. **Limited report customization** - Fixed formats only
-7. **Auth account deletion** - Firebase Auth accounts not deleted when student is removed (requires Cloud Functions)
+2. **No teacher account management** - Teachers can't be created from UI (requires Firebase Console)
+3. **Limited report customization** - Fixed formats only
+4. **Auth account deletion** - Firebase Auth accounts not deleted when student is removed (requires Cloud Functions)
 
 ## Implemented Features (Previously Limitations)
 
@@ -1023,21 +1162,41 @@ When making changes:
   - Custom badge creation by teachers
   - Rarity system (Common, Rare, Epic, Legendary)
 
+✅ **Password Reset** - Firebase Auth email-based password reset (2025-12-02)
+  - "Passwort vergessen?" links in both login forms
+  - Modal dialog for email entry
+  - Comprehensive error handling
+  - Email with reset link sent via Firebase
+
+✅ **Teacher Comments** - Qualitative feedback on competencies (2025-12-02)
+  - Teachers can add comments to any competency level
+  - Comments visible to students (read-only)
+  - Stored with teacher name and timestamp
+  - Elegant UI with gradient styling
+
+✅ **Progress Timeline** - Historical tracking of competency development (2025-12-02)
+  - Automatic snapshot on every rating change
+  - Timeline view showing last 10 changes
+  - Trend calculation (increase/decrease/stable)
+  - Real-time updates
+  - Stored in `progressHistory` collection
+
 ## Future Enhancement Ideas
 
-Based on code structure:
-- Timeline/history of competency progress
-- Teacher comments on student progress
-- Parent access with read-only view
-- CSV import for student lists (in addition to bulk text input)
-- Custom competency templates
-- Multi-language support
-- Dark mode toggle
-- Password reset functionality
-- Cloud Functions for complete user deletion (including Auth)
-- Badge editing functionality for teachers
-- Activity tracking for advanced time-based badges (consecutive days, yearly reviews)
-- Badge statistics and leaderboards per class
+Based on code structure and user needs:
+- **Parent access** with read-only view (new role type)
+- **CSV import** for student lists (in addition to bulk text input)
+- **Custom competency templates** for teachers to create own skill sets
+- **Multi-language support** (i18n framework integration)
+- **Dark mode toggle** for better accessibility
+- **Enhanced reports** with date range filters, export formats (Excel, CSV)
+- **Cloud Functions** for complete user deletion including Firebase Auth
+- **Badge editing** functionality for teachers (currently: create/delete only)
+- **Activity tracking** for advanced time-based badges (consecutive days, yearly reviews)
+- **Badge statistics** and leaderboards per class
+- **Competency goals** - Teachers set target ratings, students see progress toward goals
+- **Notification system** - Push notifications for badge awards, teacher comments
+- **Offline mode** - Progressive Web App with service worker
 
 ## Debugging Tips
 
