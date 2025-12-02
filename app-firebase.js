@@ -1932,13 +1932,21 @@ async function loadTeacherReviews(filter = 'pending') {
  * Bestätigt einen Review-Antrag und speichert die Bewertung
  * @param {string} reviewId - Review-ID
  * @param {object} review - Review-Objekt
+ * @param {string} comment - Optionaler Lehrer-Kommentar
  */
-async function approveReview(reviewId, review) {
+async function approveReview(reviewId, review, comment = '') {
     if (!currentUser || userRole !== 'teacher') {
         throw new Error('Keine Berechtigung');
     }
 
     try {
+        // Lehrer-Name vorab laden (falls Kommentar vorhanden)
+        let teacherName = 'Unbekannt';
+        if (comment && comment.trim()) {
+            const teacherDoc = await getDoc(doc(window.db, 'users', currentUser.uid));
+            teacherName = teacherDoc.exists() ? teacherDoc.data().name : 'Unbekannt';
+        }
+
         const batch = writeBatch(window.db);
 
         // 1. Review als approved markieren
@@ -1950,18 +1958,30 @@ async function approveReview(reviewId, review) {
 
         // 2. Rating im Progress speichern
         const progressRef = doc(window.db, 'progress', review.studentId);
-        batch.update(progressRef, {
+        const progressUpdate = {
             [`ratings.${review.competencyKey}`]: review.newRating,
             [`pendingReviews.${review.competencyKey}`]: deleteField(),
             lastUpdated: serverTimestamp()
-        });
+        };
+
+        // 3. Kommentar hinzufügen, falls vorhanden
+        if (comment && comment.trim()) {
+            progressUpdate[`comments.${review.competencyKey}`] = {
+                text: comment.trim(),
+                teacherName: teacherName,
+                teacherId: currentUser.uid,
+                updatedAt: serverTimestamp()
+            };
+        }
+
+        batch.update(progressRef, progressUpdate);
 
         await batch.commit();
 
-        // 3. Progress-Snapshot speichern
+        // 4. Progress-Snapshot speichern
         await saveProgressSnapshot(review.studentId, review.competencyKey, review.newRating);
 
-        // 4. Badges prüfen (bei Schüler)
+        // 5. Badges prüfen (bei Schüler)
         await checkAndAwardBadges(review.studentId);
 
         showNotification('Antrag bestätigt!', 'success');
@@ -2213,8 +2233,19 @@ function showReviewDetailModal(review) {
                 <p style="color: var(--color-text-secondary);">Eingereicht am: ${formatTimestamp(review.createdAt)}</p>
             </div>
 
+            <!-- NEU: Kommentar-Feld -->
+            <div style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem; border-left: 4px solid var(--color-info);">
+                <h3 style="margin-bottom: 0.5rem; color: var(--color-info-dark);">💬 Kommentar hinzufügen (optional)</h3>
+                <p style="color: var(--color-text-secondary); font-size: 0.9em; margin-bottom: 1rem;">
+                    Füge einen Kommentar hinzu, der dem Schüler zu dieser Kompetenz angezeigt wird.
+                </p>
+                <textarea id="reviewCommentField"
+                          style="width: 100%; padding: 12px; border: 1px solid #bee3f8; border-radius: 8px; font-size: 14px; font-family: inherit; resize: vertical; min-height: 80px;"
+                          placeholder="z.B. 'Sehr gut gemacht! Weiter so!'"></textarea>
+            </div>
+
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                <button class="btn-review-approve" onclick="handleApproveReview('${review.id}'); this.closest('.modal-overlay').remove();">
+                <button class="btn-review-approve" onclick="handleApproveReviewWithComment('${review.id}'); this.closest('.modal-overlay').remove();">
                     ✅ Bestätigen
                 </button>
                 <button class="btn-review-reject" onclick="handleRejectReview('${review.id}'); this.closest('.modal-overlay').remove();">
@@ -2231,9 +2262,16 @@ function showReviewDetailModal(review) {
 }
 
 /**
- * Behandelt das Bestätigen eines Reviews
+ * Behandelt das Bestätigen eines Reviews (ohne Kommentar - Schnellbestätigung)
  */
 window.handleApproveReview = async function(reviewId) {
+    await handleApproveReviewWithComment(reviewId, null);
+};
+
+/**
+ * Behandelt das Bestätigen eines Reviews mit optionalem Kommentar
+ */
+window.handleApproveReviewWithComment = async function(reviewId, commentOverride = null) {
     showLoading(true);
 
     try {
@@ -2245,8 +2283,15 @@ window.handleApproveReview = async function(reviewId) {
 
         const review = { id: reviewDoc.id, ...reviewDoc.data() };
 
-        // Review bestätigen
-        await approveReview(reviewId, review);
+        // Kommentar aus Modal-Feld holen (falls nicht explizit übergeben)
+        let comment = commentOverride;
+        if (comment === null) {
+            const commentField = document.getElementById('reviewCommentField');
+            comment = commentField ? commentField.value.trim() : '';
+        }
+
+        // Review bestätigen (mit optionalem Kommentar)
+        await approveReview(reviewId, review, comment);
 
         // Reviews neu laden
         const currentFilter = document.querySelector('.review-filter-button.active');
@@ -2260,7 +2305,8 @@ window.handleApproveReview = async function(reviewId) {
         // Badge aktualisieren
         await updateReviewBadge();
 
-        showNotification('Antrag bestätigt!', 'success');
+        const msg = comment ? 'Antrag bestätigt und Kommentar gespeichert!' : 'Antrag bestätigt!';
+        showNotification(msg, 'success');
     } catch (error) {
         console.error('Fehler beim Bestätigen:', error);
         showNotification('Fehler beim Bestätigen: ' + error.message, 'error');
