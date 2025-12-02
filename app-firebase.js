@@ -2608,10 +2608,29 @@ async function renderStudentCompetencies(ratings, comments = {}) {
                     // Alle Kommentare anzeigen
                     commentsForLevel.forEach(comment => {
                         if (comment && comment.text) {
-                            const commentDate = comment.createdAt ?
-                                (comment.createdAt instanceof Date ? comment.createdAt.toLocaleDateString('de-DE') :
-                                 comment.createdAt.toMillis ? new Date(comment.createdAt.toMillis()).toLocaleDateString('de-DE') :
-                                 comment.updatedAt ? new Date(comment.updatedAt.toMillis()).toLocaleDateString('de-DE') : '') : '';
+                            let commentDate = '';
+
+                            // Datum-Handling für verschiedene Formate
+                            if (comment.createdAt) {
+                                if (comment.createdAt instanceof Date) {
+                                    commentDate = comment.createdAt.toLocaleDateString('de-DE');
+                                } else if (comment.createdAt.toMillis) {
+                                    // Firestore Timestamp
+                                    commentDate = new Date(comment.createdAt.toMillis()).toLocaleDateString('de-DE');
+                                } else if (comment.createdAt.seconds) {
+                                    // Firestore Timestamp als Plain Object
+                                    commentDate = new Date(comment.createdAt.seconds * 1000).toLocaleDateString('de-DE');
+                                } else if (typeof comment.createdAt === 'string') {
+                                    commentDate = new Date(comment.createdAt).toLocaleDateString('de-DE');
+                                }
+                            } else if (comment.updatedAt) {
+                                // Fallback auf updatedAt für alte Kommentare
+                                if (comment.updatedAt.toMillis) {
+                                    commentDate = new Date(comment.updatedAt.toMillis()).toLocaleDateString('de-DE');
+                                } else if (comment.updatedAt.seconds) {
+                                    commentDate = new Date(comment.updatedAt.seconds * 1000).toLocaleDateString('de-DE');
+                                }
+                            }
 
                             const ratingInfo = comment.rating ? ` • ⭐ ${comment.rating} Sterne` : '';
 
@@ -4181,10 +4200,26 @@ window.showStudentDetails = async function(studentId) {
                         // Alle bisherigen Kommentare anzeigen
                         commentsForLevel.forEach((comment, index) => {
                             if (comment && comment.text) {
-                                const commentDate = comment.createdAt ?
-                                    (comment.createdAt instanceof Date ? comment.createdAt.toLocaleDateString('de-DE') :
-                                     comment.createdAt.toMillis ? new Date(comment.createdAt.toMillis()).toLocaleDateString('de-DE') :
-                                     comment.updatedAt ? new Date(comment.updatedAt.toMillis()).toLocaleDateString('de-DE') : '') : '';
+                                let commentDate = '';
+
+                                // Datum-Handling für verschiedene Formate
+                                if (comment.createdAt) {
+                                    if (comment.createdAt instanceof Date) {
+                                        commentDate = comment.createdAt.toLocaleDateString('de-DE');
+                                    } else if (comment.createdAt.toMillis) {
+                                        commentDate = new Date(comment.createdAt.toMillis()).toLocaleDateString('de-DE');
+                                    } else if (comment.createdAt.seconds) {
+                                        commentDate = new Date(comment.createdAt.seconds * 1000).toLocaleDateString('de-DE');
+                                    } else if (typeof comment.createdAt === 'string') {
+                                        commentDate = new Date(comment.createdAt).toLocaleDateString('de-DE');
+                                    }
+                                } else if (comment.updatedAt) {
+                                    if (comment.updatedAt.toMillis) {
+                                        commentDate = new Date(comment.updatedAt.toMillis()).toLocaleDateString('de-DE');
+                                    } else if (comment.updatedAt.seconds) {
+                                        commentDate = new Date(comment.updatedAt.seconds * 1000).toLocaleDateString('de-DE');
+                                    }
+                                }
 
                                 const ratingInfo = comment.rating ? ` • ⭐ ${comment.rating} Sterne` : '';
 
