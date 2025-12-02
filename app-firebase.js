@@ -1947,6 +1947,19 @@ async function approveReview(reviewId, review, comment = '') {
             teacherName = teacherDoc.exists() ? teacherDoc.data().name : 'Unbekannt';
         }
 
+        // Existierende Kommentare laden (falls vorhanden)
+        const progressRef = doc(window.db, 'progress', review.studentId);
+        const progressDoc = await getDoc(progressRef);
+        const existingComments = progressDoc.exists() ? (progressDoc.data().comments || {}) : {};
+
+        // Kommentare für diese Kompetenz holen
+        let commentsArray = existingComments[review.competencyKey] || [];
+
+        // Backwards Compatibility: Wenn altes Format (Objekt statt Array), konvertieren
+        if (!Array.isArray(commentsArray)) {
+            commentsArray = [commentsArray];
+        }
+
         const batch = writeBatch(window.db);
 
         // 1. Review als approved markieren
@@ -1957,21 +1970,22 @@ async function approveReview(reviewId, review, comment = '') {
         });
 
         // 2. Rating im Progress speichern
-        const progressRef = doc(window.db, 'progress', review.studentId);
         const progressUpdate = {
             [`ratings.${review.competencyKey}`]: review.newRating,
             [`pendingReviews.${review.competencyKey}`]: deleteField(),
             lastUpdated: serverTimestamp()
         };
 
-        // 3. Kommentar hinzufügen, falls vorhanden
+        // 3. Kommentar zum Array hinzufügen, falls vorhanden
         if (comment && comment.trim()) {
-            progressUpdate[`comments.${review.competencyKey}`] = {
+            commentsArray.push({
                 text: comment.trim(),
                 teacherName: teacherName,
                 teacherId: currentUser.uid,
-                updatedAt: serverTimestamp()
-            };
+                rating: review.newRating,
+                createdAt: new Date()
+            });
+            progressUpdate[`comments.${review.competencyKey}`] = commentsArray;
         }
 
         batch.update(progressRef, progressUpdate);
@@ -2581,20 +2595,37 @@ async function renderStudentCompetencies(ratings, comments = {}) {
                 const gradeText = level.grades?.join(', ') || '';
                 const basicReqBadge = level.isBasicRequirement ? '<span class="basic-req-badge">Grundanspruch</span>' : '';
 
-                // Lehrer-Kommentar für diese Kompetenz laden
-                const comment = comments[level.id];
+                // Lehrer-Kommentare für diese Kompetenz laden (kann Array oder Objekt sein)
+                let commentsForLevel = comments[level.id];
                 let commentHtml = '';
-                if (comment && comment.text) {
-                    const commentDate = comment.updatedAt ? new Date(comment.updatedAt.toMillis()).toLocaleDateString('de-DE') : '';
-                    commentHtml = `
-                        <div class="teacher-comment">
-                            <div class="comment-header">
-                                💬 <strong>Kommentar von ${escapeHTML(comment.teacherName)}</strong>
-                                ${commentDate ? `<span class="comment-date">(${commentDate})</span>` : ''}
-                            </div>
-                            <div class="comment-text">${escapeHTML(comment.text)}</div>
-                        </div>
-                    `;
+
+                if (commentsForLevel) {
+                    // Backwards Compatibility: Wenn Objekt (altes Format), zu Array konvertieren
+                    if (!Array.isArray(commentsForLevel)) {
+                        commentsForLevel = [commentsForLevel];
+                    }
+
+                    // Alle Kommentare anzeigen
+                    commentsForLevel.forEach(comment => {
+                        if (comment && comment.text) {
+                            const commentDate = comment.createdAt ?
+                                (comment.createdAt instanceof Date ? comment.createdAt.toLocaleDateString('de-DE') :
+                                 comment.createdAt.toMillis ? new Date(comment.createdAt.toMillis()).toLocaleDateString('de-DE') :
+                                 comment.updatedAt ? new Date(comment.updatedAt.toMillis()).toLocaleDateString('de-DE') : '') : '';
+
+                            const ratingInfo = comment.rating ? ` • ⭐ ${comment.rating} Sterne` : '';
+
+                            commentHtml += `
+                                <div class="teacher-comment">
+                                    <div class="comment-header">
+                                        💬 <strong>Kommentar von ${escapeHTML(comment.teacherName)}</strong>
+                                        ${commentDate ? `<span class="comment-date">(${commentDate}${ratingInfo})</span>` : ''}
+                                    </div>
+                                    <div class="comment-text">${escapeHTML(comment.text)}</div>
+                                </div>
+                            `;
+                        }
+                    });
                 }
 
                 card.innerHTML = `
@@ -4136,11 +4167,38 @@ window.showStudentDetails = async function(studentId) {
                     const stars = '★'.repeat(rating) + '☆'.repeat(MAX_RATING - rating);
                     const percentage = (rating / MAX_RATING) * 100;
 
-                    // Kommentar für diese Kompetenz laden
-                    const comment = comments[level.id];
-                    const commentText = comment?.text || '';
-                    const commentAuthor = comment?.teacherName || '';
-                    const commentDate = comment?.updatedAt ? new Date(comment.updatedAt.toMillis()).toLocaleDateString('de-DE') : '';
+                    // Kommentare für diese Kompetenz laden (kann Array oder Objekt sein)
+                    let commentsForLevel = comments[level.id];
+                    let previousCommentsHtml = '';
+
+                    // Bisherige Kommentare anzeigen
+                    if (commentsForLevel) {
+                        // Backwards Compatibility: Wenn Objekt (altes Format), zu Array konvertieren
+                        if (!Array.isArray(commentsForLevel)) {
+                            commentsForLevel = [commentsForLevel];
+                        }
+
+                        // Alle bisherigen Kommentare anzeigen
+                        commentsForLevel.forEach((comment, index) => {
+                            if (comment && comment.text) {
+                                const commentDate = comment.createdAt ?
+                                    (comment.createdAt instanceof Date ? comment.createdAt.toLocaleDateString('de-DE') :
+                                     comment.createdAt.toMillis ? new Date(comment.createdAt.toMillis()).toLocaleDateString('de-DE') :
+                                     comment.updatedAt ? new Date(comment.updatedAt.toMillis()).toLocaleDateString('de-DE') : '') : '';
+
+                                const ratingInfo = comment.rating ? ` • ⭐ ${comment.rating} Sterne` : '';
+
+                                previousCommentsHtml += `
+                                    <div style="background: #e0f2fe; padding: 10px; border-radius: 6px; margin-bottom: 8px; border-left: 3px solid #0ea5e9;">
+                                        <div style="font-size: 11px; color: #555; margin-bottom: 4px;">
+                                            <strong>${escapeHTML(comment.teacherName)}</strong> • ${commentDate}${ratingInfo}
+                                        </div>
+                                        <div style="font-size: 13px; color: #333;">${escapeHTML(comment.text)}</div>
+                                    </div>
+                                `;
+                            }
+                        });
+                    }
 
                     competenciesHTML += `
                         <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
@@ -4153,17 +4211,27 @@ window.showStudentDetails = async function(studentId) {
                                 <div style="background: #667eea; width: ${percentage}%; height: 100%;"></div>
                             </div>
 
-                            <!-- Kommentar-Bereich -->
+                            <!-- Bisherige Kommentare -->
+                            ${previousCommentsHtml ? `
+                                <div style="margin-bottom: 12px;">
+                                    <label style="display: block; font-weight: 600; font-size: 12px; color: #555; margin-bottom: 6px;">
+                                        📜 Bisherige Kommentare:
+                                    </label>
+                                    ${previousCommentsHtml}
+                                </div>
+                            ` : ''}
+
+                            <!-- Neuer Kommentar-Bereich -->
                             <div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed #dee2e6;">
                                 <label style="display: block; font-weight: 600; font-size: 12px; color: #555; margin-bottom: 6px;">
-                                    💬 Lehrer-Kommentar:
+                                    💬 Neuer Kommentar hinzufügen:
                                 </label>
                                 <textarea id="comment_${level.id}"
                                           style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 6px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 60px;"
-                                          placeholder="Kommentar für ${escapeHTML(level.lpCode)} (optional)">${escapeHTML(commentText)}</textarea>
+                                          placeholder="Neuen Kommentar für ${escapeHTML(level.lpCode)} hinzufügen (optional)"></textarea>
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
                                     <small style="color: #888; font-size: 11px;">
-                                        ${commentAuthor ? `Zuletzt bearbeitet: ${commentAuthor} (${commentDate})` : ''}
+                                        ${commentsForLevel && commentsForLevel.length > 0 ? `${commentsForLevel.length} Kommentar(e) vorhanden` : ''}
                                     </small>
                                     <button onclick="saveTeacherComment('${studentId}', '${level.id}')"
                                             style="background: #667eea; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;">
@@ -4369,20 +4437,34 @@ window.saveTeacherComment = async function(studentId, levelId) {
         const progressRef = doc(window.db, 'progress', studentId);
         const progressDoc = await getDoc(progressRef);
 
-        // Existierende Kommentare laden oder leeres Objekt erstellen
+        // Existierende Daten laden
         const existingData = progressDoc.exists() ? progressDoc.data() : {};
         const comments = existingData.comments || {};
+        const ratings = existingData.ratings || {};
+        const currentRating = ratings[levelId] || 0;
 
         if (commentText) {
-            // Kommentar speichern/aktualisieren
-            comments[levelId] = {
+            // Kommentare für diese Kompetenz holen (Array)
+            let commentsArray = comments[levelId] || [];
+
+            // Backwards Compatibility: Wenn Objekt statt Array, konvertieren
+            if (!Array.isArray(commentsArray)) {
+                commentsArray = [commentsArray];
+            }
+
+            // Neuen Kommentar hinzufügen
+            const teacherData = await getDoc(doc(window.db, 'users', currentUser.uid));
+            commentsArray.push({
                 text: commentText,
-                teacherName: currentUser.displayName || (await getDoc(doc(window.db, 'users', currentUser.uid))).data().name,
+                teacherName: currentUser.displayName || teacherData.data().name,
                 teacherId: currentUser.uid,
-                updatedAt: serverTimestamp()
-            };
+                rating: currentRating,
+                createdAt: new Date()
+            });
+
+            comments[levelId] = commentsArray;
         } else {
-            // Leerer Text: Kommentar löschen
+            // Leerer Text: Alle Kommentare löschen
             delete comments[levelId];
         }
 
@@ -4392,6 +4474,11 @@ window.saveTeacherComment = async function(studentId, levelId) {
         });
 
         showNotification('Kommentar gespeichert!', 'success');
+
+        // Textfeld leeren (neuer Kommentar wurde hinzugefügt)
+        if (commentText) {
+            commentTextarea.value = '';
+        }
 
         // Visuelles Feedback
         commentTextarea.style.borderColor = '#48bb78';
