@@ -2028,3 +2028,202 @@ button.secondary:hover {
         width: 100%;
     }
 }
+
+/* ============= LEHRER-KOMMENTARE ============= */
+.teacher-comment {
+    margin-top: 12px;
+    padding: 12px;
+    background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+    border-left: 4px solid var(--color-info);
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.comment-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    color: var(--color-info-dark);
+    font-size: 12px;
+}
+
+.comment-header strong {
+    font-weight: 600;
+}
+
+.comment-date {
+    font-size: 11px;
+    color: var(--color-text-light);
+    font-weight: normal;
+    margin-left: 6px;
+}
+
+.comment-text {
+    color: var(--color-text);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .comment-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+}
+
+/* ============= FORTSCHRITTS-TIMELINE ============= */
+.progress-timeline-section {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 30px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    animation: slideIn 0.5s ease-out;
+}
+
+.timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid var(--color-border-light);
+}
+
+.timeline-header h3 {
+    margin: 0;
+    color: var(--color-primary);
+    font-size: 20px;
+}
+
+.timeline-trend {
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.timeline-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--color-text-light);
+    font-style: italic;
+}
+
+.timeline-list {
+    position: relative;
+    padding-left: 30px;
+}
+
+.timeline-list::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: linear-gradient(to bottom, var(--color-primary), var(--color-border-light));
+}
+
+.timeline-item {
+    position: relative;
+    margin-bottom: 25px;
+    padding-bottom: 15px;
+}
+
+.timeline-item-latest {
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    border-left: 4px solid var(--color-primary);
+    padding: 15px;
+    margin-left: -15px;
+    border-radius: 8px;
+}
+
+.timeline-marker {
+    position: absolute;
+    left: -26px;
+    top: 5px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    border: 3px solid var(--color-primary);
+    box-shadow: 0 0 0 4px white;
+}
+
+.timeline-item-latest .timeline-marker {
+    background: var(--color-primary);
+    box-shadow: 0 0 0 4px white, 0 0 0 8px rgba(102, 126, 234, 0.2);
+}
+
+.timeline-content {
+    padding-left: 10px;
+}
+
+.timeline-date {
+    font-size: 12px;
+    color: var(--color-text-light);
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.timeline-stats {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.timeline-stat {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+}
+
+.stat-label {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.stat-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--color-primary);
+}
+
+.timeline-change {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: rgba(102, 126, 234, 0.1);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--color-primary-dark);
+    font-weight: 500;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .timeline-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .timeline-trend {
+        font-size: 14px;
+    }
+
+    .timeline-list {
+        padding-left: 20px;
+    }
+
+    .timeline-marker {
+        left: -16px;
+        width: 12px;
+        height: 12px;
+    }
+}
