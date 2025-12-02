@@ -2201,10 +2201,11 @@ function showReviewDetailModal(review) {
     const newRating = review.newRating;
 
     modal.innerHTML = `
-        <div class="modal-content" style="max-width: 600px; padding: 2rem;">
-            <button class="close-btn" onclick="this.closest('.modal-overlay').remove()">✕</button>
+        <div class="modal-content" style="max-width: 600px;">
+            <div style="padding: 2rem;">
+                <button class="close-btn" onclick="this.closest('.modal-overlay').remove()">✕</button>
 
-            <h2 style="color: var(--color-primary); margin-bottom: 1.5rem;">📋 Bewertungsantrag Details</h2>
+                <h2 style="color: var(--color-primary); margin-bottom: 1.5rem;">📋 Bewertungsantrag Details</h2>
 
             <div style="background: var(--color-bg-lighter); padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem;">
                 <h3 style="margin-bottom: 1rem;">Schüler</h3>
@@ -2254,6 +2255,7 @@ function showReviewDetailModal(review) {
                 <button class="secondary" onclick="this.closest('.modal-overlay').remove()">
                     Schließen
                 </button>
+            </div>
             </div>
         </div>
     `;
