@@ -2447,6 +2447,7 @@ async function showStudentArea(userData) {
 
 // Kompetenzen für Schüler rendern (hierarchisch)
 async function renderStudentCompetencies(ratings, comments = {}) {
+    console.log('DEBUG renderStudentCompetencies - Kommentare:', comments);
     const container = document.getElementById('competencies');
     container.innerHTML = '';
 
@@ -2599,14 +2600,21 @@ async function renderStudentCompetencies(ratings, comments = {}) {
                 let commentsForLevel = comments[level.id];
                 let commentHtml = '';
 
+                // DEBUG: Kommentare loggen
+                if (commentsForLevel) {
+                    console.log('Kommentare für', level.lpCode, ':', commentsForLevel);
+                }
+
                 if (commentsForLevel) {
                     // Backwards Compatibility: Wenn Objekt (altes Format), zu Array konvertieren
                     if (!Array.isArray(commentsForLevel)) {
+                        console.log('Konvertiere Objekt zu Array:', commentsForLevel);
                         commentsForLevel = [commentsForLevel];
                     }
 
                     // Alle Kommentare anzeigen
-                    commentsForLevel.forEach(comment => {
+                    commentsForLevel.forEach((comment, idx) => {
+                        console.log(`Kommentar ${idx}:`, comment);
                         if (comment && comment.text) {
                             let commentDate = '';
 
