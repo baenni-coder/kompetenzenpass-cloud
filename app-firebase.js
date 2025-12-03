@@ -492,7 +492,6 @@ window.closePasswordResetModal = function() {
 // Passwort-Reset-E-Mail senden
 window.sendPasswordReset = async function() {
     const email = document.getElementById('resetEmail').value;
-    console.log('DEBUG sendPasswordReset - Email:', email);
 
     if (!email) {
         showNotification('Bitte E-Mail-Adresse eingeben!', 'error');
@@ -507,15 +506,11 @@ window.sendPasswordReset = async function() {
     showLoading(true);
 
     try {
-        console.log('DEBUG sendPasswordReset - Sende Reset-Email an:', email);
         await sendPasswordResetEmail(window.auth, email);
-        console.log('DEBUG sendPasswordReset - E-Mail erfolgreich gesendet!');
-        showNotification('E-Mail zum Zurücksetzen wurde gesendet! Bitte überprüfe dein Postfach.', 'success');
+        showNotification('E-Mail zum Zurücksetzen wurde gesendet! Bitte überprüfe dein Postfach (auch Spam/Junk-Ordner).', 'success');
         closePasswordResetModal();
     } catch (error) {
         console.error('Password reset error:', error);
-        console.error('Password reset error code:', error.code);
-        console.error('Password reset error message:', error.message);
 
         if (error.code === 'auth/user-not-found') {
             showNotification('Kein Account mit dieser E-Mail-Adresse gefunden.', 'error');
@@ -1957,10 +1952,6 @@ async function approveReview(reviewId, review, comment = '') {
         const progressDoc = await getDoc(progressRef);
         const existingComments = progressDoc.exists() ? (progressDoc.data().comments || {}) : {};
 
-        // DEBUG: Keys loggen
-        console.log('DEBUG approveReview - review.competencyKey:', review.competencyKey);
-        console.log('DEBUG approveReview - existingComments Keys:', Object.keys(existingComments));
-
         // Kommentare für diese Kompetenz holen
         let commentsArray = existingComments[review.competencyKey] || [];
 
@@ -1994,8 +1985,6 @@ async function approveReview(reviewId, review, comment = '') {
                 rating: review.newRating,
                 createdAt: new Date()
             });
-            console.log('DEBUG approveReview - Speichere Kommentar unter Key:', `comments.${review.competencyKey}`);
-            console.log('DEBUG approveReview - commentsArray:', commentsArray);
             progressUpdate[`comments.${review.competencyKey}`] = commentsArray;
         }
 
@@ -2314,10 +2303,7 @@ window.handleApproveReviewWithComment = async function(reviewId, commentOverride
         let comment = commentOverride;
         if (comment === null) {
             const commentField = document.getElementById('reviewCommentField');
-            console.log('DEBUG handleApproveReviewWithComment - commentField:', commentField);
-            console.log('DEBUG handleApproveReviewWithComment - commentField.value:', commentField ? commentField.value : 'FELD NICHT GEFUNDEN');
             comment = commentField ? commentField.value.trim() : '';
-            console.log('DEBUG handleApproveReviewWithComment - comment (nach trim):', comment);
         }
 
         // Review bestätigen (mit optionalem Kommentar)
@@ -2469,7 +2455,6 @@ async function showStudentArea(userData) {
 
 // Kompetenzen für Schüler rendern (hierarchisch)
 async function renderStudentCompetencies(ratings, comments = {}) {
-    console.log('DEBUG renderStudentCompetencies - Kommentare:', comments);
     const container = document.getElementById('competencies');
     container.innerHTML = '';
 
@@ -2622,21 +2607,14 @@ async function renderStudentCompetencies(ratings, comments = {}) {
                 let commentsForLevel = comments[level.id];
                 let commentHtml = '';
 
-                // DEBUG: Kommentare loggen
-                if (commentsForLevel) {
-                    console.log('Kommentare für', level.lpCode, ':', commentsForLevel);
-                }
-
                 if (commentsForLevel) {
                     // Backwards Compatibility: Wenn Objekt (altes Format), zu Array konvertieren
                     if (!Array.isArray(commentsForLevel)) {
-                        console.log('Konvertiere Objekt zu Array:', commentsForLevel);
                         commentsForLevel = [commentsForLevel];
                     }
 
                     // Alle Kommentare anzeigen
                     commentsForLevel.forEach((comment, idx) => {
-                        console.log(`Kommentar ${idx}:`, comment);
                         if (comment && comment.text) {
                             let commentDate = '';
 
