@@ -2266,10 +2266,10 @@ function showReviewDetailModal(review) {
             </div>
 
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                <button class="btn-review-approve" onclick="handleApproveReviewWithComment('${review.id}'); this.closest('.modal-overlay').remove();">
+                <button class="btn-review-approve" onclick="handleApproveReviewWithComment('${review.id}')">
                     ✅ Bestätigen
                 </button>
-                <button class="btn-review-reject" onclick="handleRejectReview('${review.id}'); this.closest('.modal-overlay').remove();">
+                <button class="btn-review-reject" onclick="handleRejectReview('${review.id}')">
                     ❌ Ablehnen
                 </button>
                 <button class="secondary" onclick="this.closest('.modal-overlay').remove()">
@@ -2309,7 +2309,10 @@ window.handleApproveReviewWithComment = async function(reviewId, commentOverride
         let comment = commentOverride;
         if (comment === null) {
             const commentField = document.getElementById('reviewCommentField');
+            console.log('DEBUG handleApproveReviewWithComment - commentField:', commentField);
+            console.log('DEBUG handleApproveReviewWithComment - commentField.value:', commentField ? commentField.value : 'FELD NICHT GEFUNDEN');
             comment = commentField ? commentField.value.trim() : '';
+            console.log('DEBUG handleApproveReviewWithComment - comment (nach trim):', comment);
         }
 
         // Review bestätigen (mit optionalem Kommentar)
@@ -2329,6 +2332,10 @@ window.handleApproveReviewWithComment = async function(reviewId, commentOverride
 
         const msg = comment ? 'Antrag bestätigt und Kommentar gespeichert!' : 'Antrag bestätigt!';
         showNotification(msg, 'success');
+
+        // Modal schließen nach erfolgreichem Speichern
+        const modal = document.querySelector('.modal-overlay');
+        if (modal) modal.remove();
     } catch (error) {
         console.error('Fehler beim Bestätigen:', error);
         showNotification('Fehler beim Bestätigen: ' + error.message, 'error');
@@ -2376,6 +2383,10 @@ window.handleRejectReview = async function(reviewId) {
         await updateReviewBadge();
 
         showNotification('Antrag abgelehnt', 'success');
+
+        // Modal schließen nach erfolgreichem Speichern
+        const modal = document.querySelector('.modal-overlay');
+        if (modal) modal.remove();
     } catch (error) {
         console.error('Fehler beim Ablehnen:', error);
         showNotification('Fehler beim Ablehnen: ' + error.message, 'error');
