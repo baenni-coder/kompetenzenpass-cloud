@@ -1952,6 +1952,10 @@ async function approveReview(reviewId, review, comment = '') {
         const progressDoc = await getDoc(progressRef);
         const existingComments = progressDoc.exists() ? (progressDoc.data().comments || {}) : {};
 
+        // DEBUG: Keys loggen
+        console.log('DEBUG approveReview - review.competencyKey:', review.competencyKey);
+        console.log('DEBUG approveReview - existingComments Keys:', Object.keys(existingComments));
+
         // Kommentare für diese Kompetenz holen
         let commentsArray = existingComments[review.competencyKey] || [];
 
@@ -1985,6 +1989,8 @@ async function approveReview(reviewId, review, comment = '') {
                 rating: review.newRating,
                 createdAt: new Date()
             });
+            console.log('DEBUG approveReview - Speichere Kommentar unter Key:', `comments.${review.competencyKey}`);
+            console.log('DEBUG approveReview - commentsArray:', commentsArray);
             progressUpdate[`comments.${review.competencyKey}`] = commentsArray;
         }
 
