@@ -492,6 +492,7 @@ window.closePasswordResetModal = function() {
 // Passwort-Reset-E-Mail senden
 window.sendPasswordReset = async function() {
     const email = document.getElementById('resetEmail').value;
+    console.log('DEBUG sendPasswordReset - Email:', email);
 
     if (!email) {
         showNotification('Bitte E-Mail-Adresse eingeben!', 'error');
@@ -506,11 +507,15 @@ window.sendPasswordReset = async function() {
     showLoading(true);
 
     try {
+        console.log('DEBUG sendPasswordReset - Sende Reset-Email an:', email);
         await sendPasswordResetEmail(window.auth, email);
+        console.log('DEBUG sendPasswordReset - E-Mail erfolgreich gesendet!');
         showNotification('E-Mail zum Zurücksetzen wurde gesendet! Bitte überprüfe dein Postfach.', 'success');
         closePasswordResetModal();
     } catch (error) {
         console.error('Password reset error:', error);
+        console.error('Password reset error code:', error.code);
+        console.error('Password reset error message:', error.message);
 
         if (error.code === 'auth/user-not-found') {
             showNotification('Kein Account mit dieser E-Mail-Adresse gefunden.', 'error');
